@@ -1,0 +1,9 @@
+verify_jwt = false
+
+[cors]
+allowed_origins = ["*"]
+allowed_headers = [
+  "content-type",
+  "x-telegram-bot-api-secret-token",
+  "X-Telegram-Bot-Api-Secret-Token"
+]
