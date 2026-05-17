@@ -60,7 +60,7 @@ interface WizardState {
   name: string; setName: (v: string) => void;
   avatarUrl?: string; setAvatarUrl: (v?: string) => void;
 
-  channels: string[]; setChannels: (v: string[]) => void;
+  channels: string[]; setChannels: React.Dispatch<React.SetStateAction<string[]>>;
   kb: KBRef[]; setKb: (v: KBRef[]) => void;
 
   tone: "retail" | "support" | "edu"; setTone: (v: "retail"|"support"|"edu") => void;

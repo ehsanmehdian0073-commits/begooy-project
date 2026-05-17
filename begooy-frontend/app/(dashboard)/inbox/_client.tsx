@@ -101,7 +101,7 @@ function binarySearchPrefix(prefix: number[], value: number) {
   return lo;
 }
 
-export default function InboxClient({ initialItems }: { initialItems: InboxItem[] }) {
+export default function InboxClient({ initialItems, userId }: { initialItems: InboxItem[]; userId: string }) {
   const [items, setItems] = useState<InboxItem[]>(initialItems);
 
   // Filters
@@ -124,8 +124,8 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
   /* Realtime */
   useEffect(() => {
     const channel = sb
-      .channel("rt-inbox-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, (p: any) => {
+      .channel(`rt-inbox-v2-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `user_id=eq.${userId}` }, (p: any) => {
         if (p.eventType === "INSERT") {
           setItems((prev) => [p.new as InboxItem, ...prev]);
         } else if (p.eventType === "UPDATE") {
@@ -135,7 +135,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
       })
       .subscribe();
     return () => { sb.removeChannel(channel); };
-  }, []);
+  }, [userId]);
 
   async function refreshNow() {
     const { data } = await sb
@@ -145,6 +145,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
         delivery_status, external_ref, created_at, profile_name, direction,
         is_read, is_resolved, needs_human, priority
       `)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(500);
     if (data) { setItems(data as any); setLastUpdated(new Date()); }
@@ -255,11 +256,11 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
   }
   async function updateRow(id: string, data: Partial<InboxItem>) {
     patchLocal(id, data);
-    await sb.from("conversations").update(data).eq("id", id);
+    await sb.from("conversations").update(data).eq("id", id).eq("user_id", userId);
   }
   async function updateMany(ids: string[], data: Partial<InboxItem>) {
     setItems((prev) => prev.map((x) => (ids.includes(x.id) ? ({ ...x, ...data }) : x)));
-    await sb.from("conversations").update(data).in("id", ids);
+    await sb.from("conversations").update(data).in("id", ids).eq("user_id", userId);
   }
 
   function toggleRead(id: string, value?: boolean) {
@@ -540,7 +541,8 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
               <>
                 <div className="flex-1 rounded-xl border bg-white p-4 overflow-auto space-y-4">
                   {(() => {
-                    const m = items.find(x => x.id === activeId)!;
+                    const m = items.find(x => x.id === activeId);
+                    if (!m) return <div className="text-sm text-neutral-500">پیام انتخاب‌شده دیگر در فهرست نیست.</div>;
                     const meta = resolveMeta(m.channel);
                     return (
                       <div className="space-y-3">
@@ -582,7 +584,8 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
                 <div className="text-sm text-neutral-500">—</div>
               ) : (
                 (() => {
-                  const m = items.find(x => x.id === activeId)!;
+                  const m = items.find(x => x.id === activeId);
+                  if (!m) return <div className="text-sm text-neutral-500">—</div>;
                   const meta = resolveMeta(m.channel);
                   return (
                     <div className="space-y-2 text-sm">
