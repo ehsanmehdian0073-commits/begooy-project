@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { getAuthenticatedUserId } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 
@@ -33,11 +34,10 @@ const BodySchema = z
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
       return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
+        { ok: false, error: "unauthorized" },
         { status: 401 }
       );
     }
