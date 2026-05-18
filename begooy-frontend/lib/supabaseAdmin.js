@@ -7,6 +7,7 @@ if (typeof window !== "undefined") {
   throw new Error("supabaseAdmin must only be imported on the server.");
 }
 
+/** @type {import("@supabase/supabase-js").SupabaseClient | null} */
 let cachedAdmin = null;
 
 function getSupabaseAdmin() {
@@ -44,8 +45,8 @@ function getSupabaseAdmin() {
   return cachedAdmin;
 }
 
-export const supabaseAdmin = new Proxy({}, {
+export const supabaseAdmin = /** @type {import("@supabase/supabase-js").SupabaseClient} */ (new Proxy({}, {
   get(_target, prop) {
     return getSupabaseAdmin()[prop];
   },
-});
+}));
