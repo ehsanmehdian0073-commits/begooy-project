@@ -1,5 +1,5 @@
 // lib/bot/engine.ts
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   BotEdge,
   BotNode,
@@ -23,11 +23,21 @@ import {
 } from "./actions";
 
 /** Supabase Admin (Service Role) */
-const sbAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // Service Role برای نوشتن لاگ‌ها
-  { auth: { persistSession: false } }
-);
+let cachedSbAdmin: SupabaseClient | null = null;
+function getSbAdmin() {
+  if (cachedSbAdmin) return cachedSbAdmin;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase admin env is missing");
+  cachedSbAdmin = createClient(url, key, { auth: { persistSession: false } });
+  return cachedSbAdmin;
+}
+
+const sbAdmin = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    return (getSbAdmin() as any)[prop as keyof SupabaseClient];
+  },
+});
 
 /* ---------------------------------- Log ---------------------------------- */
 async function log(

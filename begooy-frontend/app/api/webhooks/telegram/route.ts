@@ -1,6 +1,6 @@
 // app/api/webhooks/telegram/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { processAutomation } from "@/lib/bot/engine";
 import type { EngineDeps } from "@/lib/bot/types";
@@ -19,8 +19,20 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Supabase (admin)
-const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
+let cachedSb: SupabaseClient | null = null;
+function getSb() {
+  if (cachedSb) return cachedSb;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error("Supabase admin env is missing");
+  cachedSb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
+  return cachedSb;
+}
+
+const sb = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    return (getSb() as any)[prop as keyof SupabaseClient];
+  },
 });
 
 // Helpers
