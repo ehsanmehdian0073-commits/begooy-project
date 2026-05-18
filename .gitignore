@@ -1,3 +1,4 @@
 .env
 .env.local
 .env.*.local
+supabase/.secrets.env*
