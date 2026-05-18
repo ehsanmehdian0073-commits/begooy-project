@@ -7,7 +7,7 @@ type CookieOptions = {
   domain?: string;
   maxAge?: number;
   expires?: Date;
-  sameSite?: "lax" | "strict" | "none";
+  sameSite?: "lax" | "strict" | "none" | boolean;
   secure?: boolean;
 };
 
