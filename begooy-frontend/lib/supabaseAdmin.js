@@ -7,32 +7,45 @@ if (typeof window !== "undefined") {
   throw new Error("supabaseAdmin must only be imported on the server.");
 }
 
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  process.env.SUPABASE_URL;
+let cachedAdmin = null;
 
-const SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || // canonical
-  process.env.SUPABASE_SERVICE_ROLE;       // fallback
+function getSupabaseAdmin() {
+  if (cachedAdmin) return cachedAdmin;
 
-if (!SUPABASE_URL) {
-  throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL).");
-}
-if (!SERVICE_ROLE) {
-  throw new Error("Missing env: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE).");
-}
+  const SUPABASE_URL =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.SUPABASE_URL;
 
-// RLS is bypassed with service role. Use ONLY in server routes / jobs.
-export const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-  global: {
-    fetch, // use Next/Node fetch
-    headers: {
-      "X-Client-Info": "begooy-admin",
-      "X-RLS-Bypass": "service-role",
+  const SERVICE_ROLE =
+    process.env.SUPABASE_SERVICE_ROLE_KEY || // canonical
+    process.env.SUPABASE_SERVICE_ROLE;       // fallback
+
+  if (!SUPABASE_URL) {
+    throw new Error("Missing env: NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL).");
+  }
+  if (!SERVICE_ROLE) {
+    throw new Error("Missing env: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE).");
+  }
+
+  // RLS is bypassed with service role. Use ONLY in server routes / jobs.
+  cachedAdmin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
     },
+    global: {
+      fetch, // use Next/Node fetch
+      headers: {
+        "X-Client-Info": "begooy-admin",
+        "X-RLS-Bypass": "service-role",
+      },
+    },
+  });
+  return cachedAdmin;
+}
+
+export const supabaseAdmin = new Proxy({}, {
+  get(_target, prop) {
+    return getSupabaseAdmin()[prop];
   },
 });
