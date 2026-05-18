@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { requireUserId } from "@/lib/auth";
 
 const BodySchema = z.object({
   kbId: z.string().uuid(),
@@ -27,11 +28,8 @@ type RpcRow = {
 
 export async function POST(req: Request) {
   try {
-    // ---- Auth: مالک باید معلوم باشد (برای تست از x-user-id استفاده می‌کنیم)
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const { userId, response } = await requireUserId(req);
+    if (response) return response;
 
     // ---- Validate body
     const raw = await req.json();
