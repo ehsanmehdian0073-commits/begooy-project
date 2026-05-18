@@ -131,7 +131,7 @@ export default function BillingHistory() {
           }
         },
       },
-      cancel: { label: "انصراف" },
+      cancel: "انصراف",
       duration: 8000,
     });
   }
@@ -163,7 +163,7 @@ export default function BillingHistory() {
           }
         },
       },
-      cancel: { label: "انصراف" },
+      cancel: "انصراف",
       duration: 8000,
     });
   }
