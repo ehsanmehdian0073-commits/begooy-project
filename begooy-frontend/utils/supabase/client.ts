@@ -1,13 +1,14 @@
 "use client";
 
 import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 type CookieOptions = {
   path?: string;
   domain?: string;
   maxAge?: number;
   expires?: Date;
-  sameSite?: "lax" | "strict" | "none";
+  sameSite?: "lax" | "strict" | "none" | boolean;
   secure?: boolean;
 };
 
@@ -18,7 +19,7 @@ function writeCookie(name: string, value: string, options: CookieOptions = {}) {
   if (options.expires) cookie += `; Expires=${options.expires.toUTCString()}`;
   cookie += `; Path=${options.path ?? "/"}`;
   if (options.domain) cookie += `; Domain=${options.domain}`;
-  if (options.sameSite) {
+  if (typeof options.sameSite === "string") {
     const s = options.sameSite === "none" ? "None" : options.sameSite[0].toUpperCase() + options.sameSite.slice(1);
     cookie += `; SameSite=${s}`;
   }
@@ -50,28 +51,26 @@ function parseAll(): Array<{ name: string; value: string }> {
 }
 
 export function createClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    return new Proxy({} as SupabaseClient, {
+      get() {
+        throw new Error("Supabase public env is missing");
+      },
+    });
+  }
+
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anon,
     {
       cookies: {
-        // روش جدید ترجیحی (داشتن هر دو متد)
         getAll() {
           return parseAll().map(({ name, value }) => ({ name, value }));
         },
         setAll(cookies: Array<{ name: string; value: string; options?: CookieOptions }>) {
           cookies.forEach(({ name, value, options }) => writeCookie(name, value, options));
-        },
-
-        // روش جایگزین (قدیمی‌تر)؛ بودنِ این‌ها هم مشکلی ندارد
-        get(name: string) {
-          return readCookie(name);
-        },
-        set(name: string, value: string, options?: CookieOptions) {
-          writeCookie(name, value, options);
-        },
-        remove(name: string, options?: CookieOptions) {
-          deleteCookie(name, options);
         },
       },
     }

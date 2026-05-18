@@ -1,5 +1,5 @@
 // lib/bot/engine.ts
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   BotEdge,
   BotNode,
@@ -23,11 +23,21 @@ import {
 } from "./actions";
 
 /** Supabase Admin (Service Role) */
-const sbAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // Service Role برای نوشتن لاگ‌ها
-  { auth: { persistSession: false } }
-);
+let cachedSbAdmin: SupabaseClient | null = null;
+function getSbAdmin() {
+  if (cachedSbAdmin) return cachedSbAdmin;
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase admin env is missing");
+  cachedSbAdmin = createClient(url, key, { auth: { persistSession: false } });
+  return cachedSbAdmin;
+}
+
+const sbAdmin = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    return (getSbAdmin() as any)[prop as keyof SupabaseClient];
+  },
+});
 
 /* ---------------------------------- Log ---------------------------------- */
 async function log(
@@ -162,7 +172,7 @@ function studioToRuntime(st: {
   name: string;
   nodes: StudioNode[];
   edges: StudioEdge[];
-}: Workflow) {
+}): Workflow {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
@@ -203,17 +213,19 @@ function studioToRuntime(st: {
     } as any;
 
     // نگاشت نام‌ها
-    if (rt.kind === "trigger" && rt.type === "channel") rt.type = "message_received";
-    if (rt.kind === "action" && rt.type === "send-message") rt.type = "send_message";
-    if (rt.kind === "action" && rt.type === "tag-customer") rt.type = "add_tag";
-    if (rt.kind === "action" && rt.type === "set-var") rt.type = "set_var";
-    if (rt.kind === "control" && rt.type === "branch") rt.type = "branch";
+    const rawKind = rt.kind as string;
+    const rawType = rt.type as string;
+    if (rawKind === "trigger" && rawType === "channel") rt.type = "message_received";
+    if (rawKind === "action" && rawType === "send-message") rt.type = "send_message";
+    if (rawKind === "action" && rawType === "tag-customer") rt.type = "add_tag";
+    if (rawKind === "action" && rawType === "set-var") rt.type = "set_var";
+    if (rawKind === "control" && rawType === "branch") rt.type = "branch";
 
-    if (rt.kind === "condition" && rt.type === "ai-intent") rt.type = "contains_any";
-    if (rt.kind === "condition" && rt.type === "regex") rt.type = "regex";
+    if (rawKind === "condition" && rawType === "ai-intent") rt.type = "contains_any";
+    if (rawKind === "condition" && rawType === "regex") rt.type = "regex";
 
-    if (rt.kind === "action" && rt.type === "delay") rt.type = "delay_ms";
-    if (rt.kind === "action" && rt.type === "kb-answer") rt.type = "kb_answer";
+    if (rawKind === "action" && rawType === "delay") rt.type = "delay_ms";
+    if (rawKind === "action" && rawType === "kb-answer") rt.type = "kb_answer";
 
     return rt;
   });

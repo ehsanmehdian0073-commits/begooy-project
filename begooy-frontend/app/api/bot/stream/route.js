@@ -6,10 +6,17 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 /* ---------- Supabase ---------- */
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SRV_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;   // اختیاری ولی بهتر
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const supabase = createClient(SUPABASE_URL, SRV_KEY || ANON_KEY, { auth: { persistSession: false } });
+let supabase = null;
+function getSupabase() {
+  if (supabase) return supabase;
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const SRV_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;   // اختیاری ولی بهتر
+  const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = SRV_KEY || ANON_KEY;
+  if (!SUPABASE_URL || !key) throw new Error("Supabase env is missing");
+  supabase = createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
+  return supabase;
+}
 
 /* ---------- OpenRouter ---------- */
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
@@ -22,7 +29,7 @@ const snip = (s, n = 220) => (s || "").toString().slice(0, n);
 
 /* درج پیام نهایی بات در conversations */
 async function insertBotMessage({ sessionId, text }) {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from("conversations")
     .insert({
       platform: "web",

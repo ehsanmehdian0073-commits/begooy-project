@@ -101,7 +101,7 @@ function binarySearchPrefix(prefix: number[], value: number) {
   return lo;
 }
 
-export default function InboxClient({ initialItems }: { initialItems: InboxItem[] }) {
+export default function InboxClient({ initialItems, currentUserId }: { initialItems: InboxItem[]; currentUserId: string }) {
   const [items, setItems] = useState<InboxItem[]>(initialItems);
 
   // Filters
@@ -125,7 +125,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
   useEffect(() => {
     const channel = sb
       .channel("rt-inbox-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, (p: any) => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `user_id=eq.${currentUserId}` }, (p: any) => {
         if (p.eventType === "INSERT") {
           setItems((prev) => [p.new as InboxItem, ...prev]);
         } else if (p.eventType === "UPDATE") {
@@ -135,7 +135,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
       })
       .subscribe();
     return () => { sb.removeChannel(channel); };
-  }, []);
+  }, [currentUserId]);
 
   async function refreshNow() {
     const { data } = await sb
@@ -145,6 +145,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
         delivery_status, external_ref, created_at, profile_name, direction,
         is_read, is_resolved, needs_human, priority
       `)
+      .eq("user_id", currentUserId)
       .order("created_at", { ascending: false })
       .limit(500);
     if (data) { setItems(data as any); setLastUpdated(new Date()); }
@@ -153,7 +154,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
     if (!autoRefresh) return;
     const id = setInterval(() => refreshNow(), 10_000);
     return () => clearInterval(id);
-  }, [autoRefresh]);
+  }, [autoRefresh, currentUserId]);
 
   /* Shortcuts */
   useEffect(() => {
@@ -255,11 +256,11 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
   }
   async function updateRow(id: string, data: Partial<InboxItem>) {
     patchLocal(id, data);
-    await sb.from("conversations").update(data).eq("id", id);
+    await sb.from("conversations").update(data).eq("id", id).eq("user_id", currentUserId);
   }
   async function updateMany(ids: string[], data: Partial<InboxItem>) {
     setItems((prev) => prev.map((x) => (ids.includes(x.id) ? ({ ...x, ...data }) : x)));
-    await sb.from("conversations").update(data).in("id", ids);
+    await sb.from("conversations").update(data).in("id", ids).eq("user_id", currentUserId);
   }
 
   function toggleRead(id: string, value?: boolean) {

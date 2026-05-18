@@ -1,9 +1,13 @@
 // app/api/kb/status/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireUserId } from "@/lib/auth";
 
 export async function GET(req: Request) {
   try {
+    const { userId, response } = await requireUserId(req);
+    if (response) return response;
+
     const u = new URL(req.url);
     const kbId = (u.searchParams.get("kbId") || u.searchParams.get("id") || "").trim();
 
@@ -14,12 +18,15 @@ export async function GET(req: Request) {
     // 1) KB info
     const { data: kb, error: kbErr } = await sb
       .from("knowledge_base")
-      .select("id,title,status,created_at,language,total_chunks,source_type,source_ref")
+      .select("id,title,status,created_at,language,total_chunks,source_type,source_ref,owner_id")
       .eq("id", kbId)
       .single();
 
     if (kbErr || !kb) {
       return NextResponse.json({ ok: false, error: "KB not found" }, { status: 404 });
+    }
+    if (kb.owner_id !== userId) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
     // 2) Counts بدون payload
