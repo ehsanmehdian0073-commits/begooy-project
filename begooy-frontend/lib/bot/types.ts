@@ -19,23 +19,32 @@ export type EventPayload = {
   ctx?: Record<string, any>; // دادهٔ کمکی در طول اجرای فلو
 };
 
-export type NodeKind = "trigger" | "condition" | "action";
+export type NodeKind = "trigger" | "condition" | "action" | "control";
 
 export type NodeType =
   // Triggers
   | "message_received"
+  | "channel"
   // Conditions
   | "contains_any"
+  | "ai-intent"
   | "regex"
   | "time_window"
   // Actions
   | "send_message"
+  | "send-message"
   | "add_tag"
+  | "tag-customer"
   | "create_note"
+  | "delay"
   | "delay_ms"
   | "call_webhook"
   | "set_var"
-  | "kb_answer";
+  | "set-var"
+  | "kb_answer"
+  | "kb-answer"
+  // Control
+  | "branch";
 
 export type BotNode = {
   id: string;
@@ -65,7 +74,7 @@ export type Workflow = {
 
 // نتیجه اجرای یک نود
 export type StepResult =
-  | { outcome: "continue"; nextLabels?: string[] }   // ادامه به یال‌هایی با label خاص
+  | { outcome: "continue"; nextLabels?: string[]; nextId?: string }   // ادامه به یال‌هایی با label خاص
   | { outcome: "halt" }                              // توقف
   | { outcome: "error"; message: string };
 
