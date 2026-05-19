@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { isAuthFailure, requireVerifiedUser } from "@/lib/server/auth";
 
 /** ---------- Config ---------- */
 const DEFAULT_BUCKET = "kb-uploads";
@@ -170,11 +171,9 @@ async function readBody(req: Request) {
 /** ---------- Route ---------- */
 export async function POST(req: Request) {
   try {
-    // ✅ الزام مالک: برای تست از هدر x-user-id استفاده می‌کنیم
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const auth = await requireVerifiedUser(req);
+    if (isAuthFailure(auth)) return auth.response;
+    const userId = auth.userId;
 
     // rate-limit per IP
     const ip =

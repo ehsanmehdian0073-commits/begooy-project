@@ -1,6 +1,7 @@
 // app/api/kb/ask/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { isAuthFailure, requireVerifiedUser } from "@/lib/server/auth";
 
 /** ---------- Config ---------- */
 const BASE =
@@ -98,11 +99,9 @@ export async function POST(req: NextRequest) {
   const openai = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY! }) : null;
 
   try {
-    // Owner required
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const auth = await requireVerifiedUser(req);
+    if (isAuthFailure(auth)) return auth.response;
+    const userId = auth.userId;
 
     // Body
     const body = await req.json();
@@ -142,6 +141,8 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
       "x-user-id": userId,
     };
+    const cookie = req.headers.get("cookie");
+    if (cookie) passHeaders.cookie = cookie;
 
     // ---------- Retrieval
     let mode: "hybrid" | "semantic" | "no-context" | "dry-run" = "hybrid";
