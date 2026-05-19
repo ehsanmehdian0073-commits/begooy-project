@@ -113,8 +113,6 @@ scripts\diag_supabase.mjs
 scripts\insert_kb.mjs
 scripts\insert_kb.ts
 scripts\ping_embed.mjs
-supabase\.secrets.env
-supabase\.secrets.env.txt
 supabase\.temp
 supabase\config.toml
 supabase\functions
