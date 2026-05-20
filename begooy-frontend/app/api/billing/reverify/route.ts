@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isMockBillingAllowed, isMockPayment, subscriptionWindow } from "../_shared";
 
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
@@ -10,7 +12,7 @@ export async function POST(req: Request) {
   const { id } = await req.json().catch(() => ({}));
   if (!id) return NextResponse.json({ ok: false, error: "missing_id" }, { status: 400 });
 
-  const { data: p, error } = await supabase
+  const { data: p, error } = await supabaseAdmin
     .from("payments")
     .select("id, user_id, plan_id, amount_rial, gateway, status, authority")
     .eq("id", id)
@@ -24,20 +26,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, paid: true, already: true });
   }
 
-  // mock ⇒ موفق
-  if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
-    await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+  // mock ⇒ فقط در محیط توسعه و با فلگ صریح مجاز است
+  if (isMockPayment(p.authority, p.gateway)) {
+    if (!isMockBillingAllowed()) {
+      const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", p.id);
+      if (failErr) console.error("[payments.mock_disabled.error]", failErr);
+      return NextResponse.json({ ok: false, error: "mock_billing_disabled" }, { status: 400 });
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه
-    const now = new Date();
-    const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { startedAt, endsAt } = subscriptionWindow();
+    const { error: subErr } = await supabaseAdmin.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
-      started_at: now.toISOString(),
-      ends_at: ends.toISOString(),
+      started_at: startedAt,
+      ends_at: endsAt,
     }]);
+    if (subErr) {
+      console.error("[subscriptions.insert.error]", subErr);
+      return NextResponse.json({ ok: false, error: "subscription_failed" }, { status: 500 });
+    }
+
+    const { error: payUpdateErr } = await supabaseAdmin.from("payments").update({ status: "paid" }).eq("id", p.id);
+    if (payUpdateErr) {
+      console.error("[payments.paid.error]", payUpdateErr);
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   }
@@ -66,28 +81,37 @@ export async function POST(req: Request) {
     const json = await res.json().catch(() => ({} as any));
     const ok = json?.data?.code === 100 || json?.data?.code === 101;
     if (!ok) {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+      const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", p.id);
+      if (failErr) console.error("[payments.verify_failed.error]", failErr);
       return NextResponse.json({ ok: false, error: "verify_failed" }, { status: 400 });
     }
 
-    await supabase.from("payments").update({
-      status: "paid",
-      ref_id: String(json?.data?.ref_id ?? ""),
-    }).eq("id", p.id);
-
-    const now = new Date();
-    const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { startedAt, endsAt } = subscriptionWindow();
+    const { error: subErr } = await supabaseAdmin.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
-      started_at: now.toISOString(),
-      ends_at: ends.toISOString(),
+      started_at: startedAt,
+      ends_at: endsAt,
     }]);
+    if (subErr) {
+      console.error("[subscriptions.insert.error]", subErr);
+      return NextResponse.json({ ok: false, error: "subscription_failed" }, { status: 500 });
+    }
+
+    const { error: payUpdateErr } = await supabaseAdmin.from("payments").update({
+      status: "paid",
+      ref_id: String(json?.data?.ref_id ?? ""),
+    }).eq("id", p.id);
+    if (payUpdateErr) {
+      console.error("[payments.paid.error]", payUpdateErr);
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   } catch {
-    await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+    const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", p.id);
+    if (failErr) console.error("[payments.verify_catch.error]", failErr);
     return NextResponse.json({ ok: false, error: "verify_catch" }, { status: 500 });
   }
 }
