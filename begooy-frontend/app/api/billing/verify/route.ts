@@ -1,6 +1,7 @@
 // app/api/billing/verify/route.ts
 import { NextResponse } from "next/server";
-import { createClientForAction } from "@/utils/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isMockBillingAllowed, isMockPayment, subscriptionWindow } from "../_shared";
 
 type VerifyResult =
   | { ok: true; cardHash?: string; refId?: string }
@@ -52,9 +53,7 @@ export async function GET(req: Request) {
       return NextResponse.redirect(abs(`/dashboard/billing?plan=${encodeURIComponent(planIdQ)}&paid=0&err=bad_params`, req));
     }
 
-    const supabase = await createClientForAction(); // مهم: await
-
-    const { data: payRow, error: payFindErr } = await supabase
+    const { data: payRow, error: payFindErr } = await supabaseAdmin
       .from("payments")
       .select("id, user_id, plan_id, amount_rial, gateway, status")
       .eq("authority", authority)
@@ -73,42 +72,57 @@ export async function GET(req: Request) {
     }
 
     if (status !== "OK") {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      if (failErr) console.error("[payments.fail.error]", failErr);
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=user_cancelled`, req));
     }
 
     // mock یا واقعی
     let verify: VerifyResult = { ok: true };
-    if (!authority.startsWith("mock-")) {
+    if (isMockPayment(authority, payRow.gateway)) {
+      if (!isMockBillingAllowed()) {
+        const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+        if (failErr) console.error("[payments.mock_disabled.error]", failErr);
+        return NextResponse.redirect(abs(`${returnTo}&paid=0&err=mock_billing_disabled`, req));
+      }
+    } else {
       const amountRial = Number(payRow.amount_rial ?? 0);
       verify = await verifyWithZarinpal(authority, amountRial);
     }
 
     if (!verify.ok) {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      if (failErr) console.error("[payments.verify_failed.error]", failErr);
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=${encodeURIComponent((verify as any).error)}`, req));
     }
 
-    // پرداخت موفق
-    await supabase
-      .from("payments")
-      .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
-      .eq("id", payRow.id);
-
     // ایجاد/تمدید اشتراک یک‌ماهه ساده
-    const now = new Date();
-    const ends = new Date(now);
-    ends.setMonth(ends.getMonth() + 1);
+    const { startedAt, endsAt } = subscriptionWindow();
 
-    await supabase.from("subscriptions").insert([
+    const { error: subErr } = await supabaseAdmin.from("subscriptions").insert([
       {
         user_id: payRow.user_id,
         plan_id: effectivePlan,
         status: "active",
-        started_at: now.toISOString(),
-        ends_at: ends.toISOString(),
+        started_at: startedAt,
+        ends_at: endsAt,
       },
     ]);
+    if (subErr) {
+      console.error("[subscriptions.insert.error]", subErr);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_failed`, req));
+    }
+
+    // پرداخت موفق
+    const { error: payUpdateErr } = await supabaseAdmin
+      .from("payments")
+      .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
+      .eq("id", payRow.id);
+
+    if (payUpdateErr) {
+      console.error("[payments.paid.error]", payUpdateErr);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {
