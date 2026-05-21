@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { getAuthenticatedUserId } from "@/lib/auth/session";
 
 const BodySchema = z.object({
   kbId: z.string().uuid(),
@@ -35,10 +36,10 @@ type RpcRow = {
 
 export async function POST(req: Request) {
   try {
-    // الزام مالک (هماهنگ با سایر روت‌ها)
-    const userId = (req.headers.get("x-user-id") || "").trim();
+    // الزام مالک از سشن واقعی، چون admin client از RLS عبور می‌کند.
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 
     const raw = await req.json();
@@ -63,6 +64,19 @@ export async function POST(req: Request) {
 
     // ابعاد مورد استفاده
     const dims = (parsed.dims?.length ? Array.from(new Set(parsed.dims)) : [...DEFAULT_DIMS]) as (1024|1536)[];
+
+    const { data: kb, error: kbErr } = await sb
+      .from("knowledge_base")
+      .select("id, owner_id")
+      .eq("id", kbId)
+      .single();
+
+    if (kbErr || !kb) {
+      return NextResponse.json({ ok: false, error: "kb_not_found" }, { status: 404 });
+    }
+    if (kb.owner_id !== userId) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
 
     // امبدینگ برای ابعاد خواسته‌شده
     const embedMap = await embedBatchWithDims([query], dims);
