@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { chunkText } from "@/lib/kb/chunker";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { getAuthenticatedUserId } from "@/lib/auth/session";
 
 export const runtime = "nodejs";
 
@@ -165,9 +166,9 @@ function deriveSamePathPrefix(start: URL): string {
 /* ---------------- Route ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    // مالک لازم
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+    // مالک از سشن واقعی لازم است؛ هدر کلاینت قابل جعل است.
+    const userId = await getAuthenticatedUserId();
+    if (!userId) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
     // Rate-limit
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";

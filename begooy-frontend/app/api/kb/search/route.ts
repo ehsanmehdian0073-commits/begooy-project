@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { getAuthenticatedUserId } from "@/lib/auth/session";
 
 const BodySchema = z.object({
   kbId: z.string().uuid(),
@@ -27,10 +28,10 @@ type RpcRow = {
 
 export async function POST(req: Request) {
   try {
-    // ---- Auth: مالک باید معلوم باشد (برای تست از x-user-id استفاده می‌کنیم)
-    const userId = (req.headers.get("x-user-id") || "").trim();
+    // ---- Auth: مالک باید از سشن واقعی خوانده شود؛ admin client از RLS عبور می‌کند.
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 
     // ---- Validate body
