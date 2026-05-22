@@ -1,17 +1,11 @@
 // app/(dashboard)/inbox/page.tsx
 import InboxClient from "./_client";
-import { createClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
+import { createClientReadOnly } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// فقط برای read اولیه در سرور
-const sb = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
-async function fetchInitial(limit = 200) {
+async function fetchInitial(sb: Awaited<ReturnType<typeof createClientReadOnly>>, limit = 200) {
   const { data, error } = await sb
     .from("conversations")
     .select(`
@@ -27,7 +21,16 @@ async function fetchInitial(limit = 200) {
 }
 
 export default async function Page() {
-  const initial = await fetchInitial();
+  const sb = await createClientReadOnly();
+  const {
+    data: { user },
+  } = await sb.auth.getUser();
+
+  if (!user) {
+    redirect("/login?next=/dashboard/inbox");
+  }
+
+  const initial = await fetchInitial(sb);
 
   return (
     <div className="p-4 md:p-6" dir="rtl">

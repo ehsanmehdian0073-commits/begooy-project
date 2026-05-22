@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireUserId } from "@/lib/requireUser";
 
 export const runtime = "nodejs";
 
@@ -12,11 +13,11 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
+    // 1) هویت کاربر را از سشن سرور می‌گیریم، نه از هدر قابل جعل.
+    const userId = await requireUserId();
     if (!userId) {
       return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
+        { ok: false, error: "unauthorized" },
         { status: 401 }
       );
     }
