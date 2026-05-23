@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -12,42 +13,34 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
-    }
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
 
-    // 2) اعتبارسنجی ورودی
+    // 1) اعتبارسنجی ورودی
     const json = await req.json();
     const { botId, prompt } = BodySchema.parse(json);
 
-    // 3) وجود و مالکیت بات
+    // 2) وجود و مالکیت بات
     const { data: bot, error: selErr } = await sb
       .from("bots")
-      .select("id, user_id")
+      .select("id")
       .eq("id", botId)
+      .eq("user_id", userId)
       .single();
 
     if (selErr || !bot) {
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
     }
-    if (bot.user_id && bot.user_id !== userId) {
-      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-    }
 
-    // 4) آپدیت پرامپت + ست مالک اگر تهی بود
+    // 3) آپدیت پرامپت با شرط مالکیت
     const { data, error } = await sb
       .from("bots")
       .update({
         prompt,
-        user_id: bot.user_id ?? userId,
         updated_at: new Date().toISOString(), // اگر تریگر دارید می‌تونید حذف کنید
       })
       .eq("id", botId)
+      .eq("user_id", userId)
       .select("id, prompt, updated_at")
       .single();
 

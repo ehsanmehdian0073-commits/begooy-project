@@ -1,6 +1,7 @@
 // app/api/billing/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server"; // ⬅️ تغییر مهم
+import { allowMockBilling } from "@/utils/billing/mock";
 
 // ─────────────────────────────── Helpers
 function extractLimits(p: any) {
@@ -131,10 +132,11 @@ export async function POST(req: Request) {
     ? "https://sandbox.zarinpal.com/pg/v4"
     : "https://api.zarinpal.com/pg/v4";
 
-  // 3) مقادیر پیش‌فرض (Mock)
-  let gatewayMode: "mock" | "zarinpal" = "mock";
-  let authority = `mock-${Date.now()}`;
-let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  // 3) درگاه پرداخت. Mock فقط در محیط غیرپروداکشن و با ENV صریح مجاز است.
+  let gatewayMode: "mock" | "zarinpal";
+  let authority: string;
+  let redirectUrl: string;
+
   // 4) اگر درگاه آماده است
   if (hasGateway) {
     try {
@@ -161,10 +163,18 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
         gatewayMode = "zarinpal";
       } else {
         console.error("[zarinpal.request.error]", json);
+        return NextResponse.json({ ok: false, error: "gateway_request_failed" }, { status: 502 });
       }
     } catch (e) {
       console.error("[zarinpal.request.catch]", e);
+      return NextResponse.json({ ok: false, error: "gateway_request_failed" }, { status: 502 });
     }
+  } else if (allowMockBilling()) {
+    gatewayMode = "mock";
+    authority = `mock-${Date.now()}`;
+    redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  } else {
+    return NextResponse.json({ ok: false, error: "payment_gateway_unavailable" }, { status: 503 });
   }
 
   // 5) درج رکورد pending در payments
@@ -182,6 +192,7 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
 
   if (insErr) {
     console.error("[payments.insert.error]", insErr);
+    return NextResponse.json({ ok: false, error: "payment_create_failed" }, { status: 500 });
   }
 
   return NextResponse.json({

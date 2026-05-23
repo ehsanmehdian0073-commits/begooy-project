@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -33,46 +34,38 @@ const BodySchema = z
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
-    }
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
 
-    // 2) اعتبارسنجی ورودی
+    // 1) اعتبارسنجی ورودی
     const json = await req.json();
     const { botId, settings } = BodySchema.parse(json);
 
-    // 3) خواندن Bot برای مالکیت و مقادیر قبلی
+    // 2) خواندن Bot برای مالکیت و مقادیر قبلی
     const { data: bot, error: selErr } = await sb
       .from("bots")
-      .select("id, user_id, settings_json")
+      .select("id, settings_json")
       .eq("id", botId)
+      .eq("user_id", userId)
       .single();
 
     if (selErr) {
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
     }
-    if (bot.user_id && bot.user_id !== userId) {
-      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-    }
 
-    // 4) Merge سطحی (در صورت نیاز می‌تونیم Deep Merge بذاریم)
+    // 3) Merge سطحی (در صورت نیاز می‌تونیم Deep Merge بذاریم)
     const prev = (bot.settings_json ?? {}) as Record<string, any>;
     const merged = { ...prev, ...settings };
 
-    // 5) آپدیت + مالک اگر تهی بود
+    // 4) آپدیت با شرط مالکیت
     const { data, error } = await sb
       .from("bots")
       .update({
         settings_json: merged,
-        user_id: bot.user_id ?? userId,
         updated_at: new Date().toISOString(),
       })
       .eq("id", botId)
+      .eq("user_id", userId)
       .select("id, settings_json, updated_at")
       .single();
 

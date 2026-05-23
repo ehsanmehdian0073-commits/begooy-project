@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { chunkText } from "@/lib/kb/chunker";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { requireAuthenticatedUserId } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -165,9 +166,8 @@ function deriveSamePathPrefix(start: URL): string {
 /* ---------------- Route ---------------- */
 export async function POST(req: NextRequest) {
   try {
-    // مالک لازم
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
 
     // Rate-limit
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
@@ -352,10 +352,19 @@ export async function POST(req: NextRequest) {
 
     const { error: insErr } = await sb.from("knowledge_chunks").insert(records);
     if (insErr) {
+      await sb.from("knowledge_base").delete().eq("id", kbId).eq("owner_id", userId);
       return NextResponse.json({ ok: false, error: insErr?.message ?? "Chunks insert failed" }, { status: 500 });
     }
 
-    await sb.from("knowledge_base").update({ status: "ready" }).eq("id", kbId);
+    const { error: readyErr } = await sb
+      .from("knowledge_base")
+      .update({ status: "ready" })
+      .eq("id", kbId)
+      .eq("owner_id", userId);
+    if (readyErr) {
+      await sb.from("knowledge_base").delete().eq("id", kbId).eq("owner_id", userId);
+      return NextResponse.json({ ok: false, error: readyErr.message ?? "KB status update failed" }, { status: 500 });
+    }
 
     return NextResponse.json({
       ok: true,

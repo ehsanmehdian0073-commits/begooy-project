@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { allowMockBilling } from "@/utils/billing/mock";
 
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
@@ -26,18 +27,29 @@ export async function POST(req: Request) {
 
   // mock ⇒ موفق
   if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
-    await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+    if (!allowMockBilling()) {
+      return NextResponse.json({ ok: false, error: "mock_billing_disabled" }, { status: 400 });
+    }
+
+    const { error: paidErr } = await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+    if (paidErr) {
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { error: subErr } = await supabase.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
       started_at: now.toISOString(),
       ends_at: ends.toISOString(),
     }]);
+    if (subErr) {
+      await supabase.from("payments").update({ status: "pending" }).eq("id", p.id);
+      return NextResponse.json({ ok: false, error: "subscription_create_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   }
@@ -70,20 +82,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "verify_failed" }, { status: 400 });
     }
 
-    await supabase.from("payments").update({
+    const { error: paidErr } = await supabase.from("payments").update({
       status: "paid",
       ref_id: String(json?.data?.ref_id ?? ""),
     }).eq("id", p.id);
+    if (paidErr) {
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { error: subErr } = await supabase.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
       started_at: now.toISOString(),
       ends_at: ends.toISOString(),
     }]);
+    if (subErr) {
+      await supabase.from("payments").update({ status: "pending" }).eq("id", p.id);
+      return NextResponse.json({ ok: false, error: "subscription_create_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   } catch {

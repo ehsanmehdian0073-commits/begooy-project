@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { requireAuthenticatedUserId } from "@/lib/auth";
 
 const BodySchema = z.object({
   kbId: z.string().uuid(),
@@ -35,11 +36,8 @@ type RpcRow = {
 
 export async function POST(req: Request) {
   try {
-    // الزام مالک (هماهنگ با سایر روت‌ها)
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
 
     const raw = await req.json();
     const parsed = BodySchema.parse(raw);
@@ -47,6 +45,19 @@ export async function POST(req: Request) {
     const kbId = parsed.kbId;
     const query = parsed.query;
     const limit = typeof parsed.limit === "number" ? parsed.limit : DEFAULT_LIMIT;
+
+    const { data: kb, error: kbErr } = await sb
+      .from("knowledge_base")
+      .select("id, owner_id")
+      .eq("id", kbId)
+      .single();
+
+    if (kbErr || !kb) {
+      return NextResponse.json({ ok: false, error: "kb_not_found" }, { status: 404 });
+    }
+    if (kb.owner_id !== userId) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
 
     // نرمال‌سازی وزن‌ها (فارغ از اینکه 0..1 یا 0..10 داده‌شود)
     const sw = (typeof parsed.semWeight === "number" ? parsed.semWeight : DEFAULT_SEM_WEIGHT);
