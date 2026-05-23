@@ -1,6 +1,7 @@
 // app/api/billing/verify/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { allowMockBilling } from "@/utils/billing/mock";
 
 type VerifyResult =
   | { ok: true; cardHash?: string; refId?: string }
@@ -78,8 +79,13 @@ export async function GET(req: Request) {
     }
 
     // mock یا واقعی
+    const isMockPayment = authority.startsWith("mock-") || payRow.gateway === "mock";
     let verify: VerifyResult = { ok: true };
-    if (!authority.startsWith("mock-")) {
+    if (isMockPayment) {
+      if (!allowMockBilling()) {
+        return NextResponse.redirect(abs(`${returnTo}&paid=0&err=mock_billing_disabled`, req));
+      }
+    } else {
       const amountRial = Number(payRow.amount_rial ?? 0);
       verify = await verifyWithZarinpal(authority, amountRial);
     }
@@ -90,17 +96,20 @@ export async function GET(req: Request) {
     }
 
     // پرداخت موفق
-    await supabase
+    const { error: paidErr } = await supabase
       .from("payments")
       .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
       .eq("id", payRow.id);
+    if (paidErr) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه ساده
     const now = new Date();
     const ends = new Date(now);
     ends.setMonth(ends.getMonth() + 1);
 
-    await supabase.from("subscriptions").insert([
+    const { error: subErr } = await supabase.from("subscriptions").insert([
       {
         user_id: payRow.user_id,
         plan_id: effectivePlan,
@@ -109,6 +118,10 @@ export async function GET(req: Request) {
         ends_at: ends.toISOString(),
       },
     ]);
+    if (subErr) {
+      await supabase.from("payments").update({ status: "pending" }).eq("id", payRow.id);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_create_failed`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {

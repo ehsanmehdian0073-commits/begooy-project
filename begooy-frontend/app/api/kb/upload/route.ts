@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { requireAuthenticatedUserId } from "@/lib/auth";
 
 /** ---------- Config ---------- */
 const DEFAULT_BUCKET = "kb-uploads";
@@ -115,17 +116,30 @@ function chunkByTokens(text: string) {
 }
 
 function storagePathToBucketKey(storagePath: string) {
-  let bucket = DEFAULT_BUCKET,
-    filePath = storagePath;
-  if (storagePath.includes("/")) {
-    const [maybeBucket, ...rest] = storagePath.split("/");
-    if (maybeBucket) {
-      bucket = maybeBucket;
-      filePath = rest.join("/");
-    }
+  const cleanPath = storagePath.replace(/^\/+/, "");
+  const parts = cleanPath.split("/").filter(Boolean);
+  let bucket = DEFAULT_BUCKET;
+  let filePath = parts.join("/");
+
+  if (parts[0] === DEFAULT_BUCKET) {
+    filePath = parts.slice(1).join("/");
   }
+
   return { bucket, filePath };
 }
+
+function isOwnedStoragePath(storagePath: string, userId: string) {
+  const { bucket, filePath } = storagePathToBucketKey(storagePath);
+  const segments = filePath.split("/");
+
+  return !(
+    bucket !== DEFAULT_BUCKET ||
+    !filePath ||
+    segments.some((segment) => segment === "." || segment === "..") ||
+    segments[0] !== userId
+  );
+}
+
 async function loadTextFromStorage(storagePath: string): Promise<string> {
   const { bucket, filePath } = storagePathToBucketKey(storagePath);
   const { data, error } = await sb.storage.from(bucket).download(filePath);
@@ -170,11 +184,8 @@ async function readBody(req: Request) {
 /** ---------- Route ---------- */
 export async function POST(req: Request) {
   try {
-    // ✅ الزام مالک: برای تست از هدر x-user-id استفاده می‌کنیم
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
 
     // rate-limit per IP
     const ip =
@@ -188,6 +199,9 @@ export async function POST(req: Request) {
 
     const { text: textRaw, title, dims, storagePath } = await readBody(req);
     let text = typeof textRaw === "string" ? textRaw.trim() : "";
+    if (storagePath && !isOwnedStoragePath(storagePath, userId)) {
+      return NextResponse.json({ ok: false, error: "storage_path_forbidden" }, { status: 403 });
+    }
     if (!text && storagePath) text = (await loadTextFromStorage(storagePath)).trim();
     if (!text)
       return NextResponse.json(
@@ -237,13 +251,26 @@ export async function POST(req: Request) {
       return rec;
     });
     const { error: insErr } = await sb.from("knowledge_chunks").insert(records);
-    if (insErr)
+    if (insErr) {
+      await sb.from("knowledge_base").delete().eq("id", kbId).eq("owner_id", userId);
       return NextResponse.json(
         { ok: false, error: insErr?.message ?? "Chunks insert failed" },
         { status: 500 }
       );
+    }
 
-    await sb.from("knowledge_base").update({ status: "ready" }).eq("id", kbId);
+    const { error: readyErr } = await sb
+      .from("knowledge_base")
+      .update({ status: "ready" })
+      .eq("id", kbId)
+      .eq("owner_id", userId);
+    if (readyErr) {
+      await sb.from("knowledge_base").delete().eq("id", kbId).eq("owner_id", userId);
+      return NextResponse.json(
+        { ok: false, error: readyErr.message ?? "KB status update failed" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json(
       {
