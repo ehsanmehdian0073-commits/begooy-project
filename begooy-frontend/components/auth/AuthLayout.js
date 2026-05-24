@@ -1,12 +1,17 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 
 export default function AuthLayout({ children, bubbleText }) {
   const pathname = usePathname();
-  const search = useSearchParams();
-  const next = search.get("next") || "/dashboard/billing";
+  const [next, setNext] = useState("/dashboard/billing");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setNext(params.get("next") || "/dashboard/billing");
+  }, []);
 
   const isLogin = pathname?.startsWith("/login");
   const tabs = [
