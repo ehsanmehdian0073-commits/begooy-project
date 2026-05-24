@@ -26,7 +26,15 @@ export async function POST(req: Request) {
 
   // mock ⇒ موفق
   if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
-    await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+    const { data: paidPayment, error: paidErr } = await supabase
+      .from("payments")
+      .update({ status: "paid" })
+      .eq("id", p.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (paidErr) return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    if (!paidPayment) return NextResponse.json({ ok: true, paid: true, already: true });
 
     // ایجاد/تمدید اشتراک یک‌ماهه
     const now = new Date();
@@ -70,10 +78,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "verify_failed" }, { status: 400 });
     }
 
-    await supabase.from("payments").update({
+    const { data: paidPayment, error: paidErr } = await supabase.from("payments").update({
       status: "paid",
       ref_id: String(json?.data?.ref_id ?? ""),
-    }).eq("id", p.id);
+    })
+      .eq("id", p.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (paidErr) return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    if (!paidPayment) return NextResponse.json({ ok: true, paid: true, already: true });
 
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);

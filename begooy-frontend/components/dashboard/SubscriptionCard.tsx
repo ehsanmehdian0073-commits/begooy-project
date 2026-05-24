@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Progress } from "@/components/ui/progress";
 
 import { tokens } from "@/components/ui/tokens";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 // ───────────────────────────────── Types
@@ -54,11 +54,11 @@ export default function SubscriptionCard() {
   const [actionLoading, setActionLoading] = useState(false);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
 
-  const qp = useSearchParams();
   const router = useRouter();
 
   // بعد از برگشت از verify → toast + پاک کردن QueryString
   useEffect(() => {
+    const qp = new URLSearchParams(window.location.search);
     const paid = qp.get("paid");
     const err = qp.get("err");
     if (!paid && !err) return;
@@ -70,8 +70,7 @@ export default function SubscriptionCard() {
     }
 
     router.replace("/dashboard/billing");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qp]);
+  }, [router]);
 
   // بارگذاری اولیه
   useEffect(() => {

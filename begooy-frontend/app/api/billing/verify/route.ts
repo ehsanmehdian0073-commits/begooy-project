@@ -89,11 +89,21 @@ export async function GET(req: Request) {
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=${encodeURIComponent((verify as any).error)}`, req));
     }
 
-    // پرداخت موفق
-    await supabase
+    // پرداخت موفق: only the request that flips pending -> paid may grant entitlement.
+    const { data: paidPayment, error: paidErr } = await supabase
       .from("payments")
       .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
-      .eq("id", payRow.id);
+      .eq("id", payRow.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+
+    if (paidErr) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
+    if (!paidPayment) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه ساده
     const now = new Date();

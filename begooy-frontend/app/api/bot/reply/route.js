@@ -54,6 +54,16 @@ function keywordOverlap(query, text) {
   return count;
 }
 
+async function getBotOwner(botId) {
+  const { data, error } = await supabase
+    .from("bots")
+    .select("user_id")
+    .eq("id", botId)
+    .maybeSingle();
+  if (error) return null;
+  return data?.user_id || null;
+}
+
 /* ---------- Sessions & Messages ---------- */
 async function ensureSession(sessionId) {
   const { data, error } = await supabase
@@ -121,16 +131,52 @@ async function matchWorkflow(botId, text) {
 }
 
 /* ---------- RAG (lexical) ---------- */
-async function kbSearchLex(query, limit = 4) {
-  const q = snip(cleanQ(query), 200);
-  if (!q) return [];
+function cleanKbSearchTerm(query) {
+  return snip(cleanQ(query), 200).replace(/[%_,]/g, " ").trim();
+}
+
+async function kbSearchLex(query, ownerId, limit = 4) {
+  const q = cleanKbSearchTerm(query);
+  if (!ownerId || !tokenize(q).length) return [];
+  const pattern = `%${q}%`;
+  const [titleRes, contentRes] = await Promise.all([
+    supabase
+      .from("knowledge_base")
+      .select("id, title, content")
+      .eq("owner_id", ownerId)
+      .ilike("title", pattern)
+      .limit(limit),
+    supabase
+      .from("knowledge_base")
+      .select("id, title, content")
+      .eq("owner_id", ownerId)
+      .ilike("content", pattern)
+      .limit(limit),
+  ]);
+  if (titleRes.error && contentRes.error) return [];
+  const rows = [...(titleRes.data || []), ...(contentRes.data || [])];
+  return Array.from(new Map(rows.map((row) => [row.id, row])).values()).slice(0, limit);
+}
+
+async function filterHitsByOwner(hits, ownerId) {
+  if (!ownerId || !hits?.length) return [];
+  const ids = Array.from(
+    new Set(
+      hits
+        .map((h) => h?.kb_id || h?.knowledge_base_id || h?.id)
+        .filter((id) => UUID_RE.test(String(id || "")))
+    )
+  );
+  if (!ids.length) return [];
+
   const { data, error } = await supabase
     .from("knowledge_base")
-    .select("id, title, content")
-    .or(`title.ilike.%${q}%,content.ilike.%${q}%`)
-    .limit(limit);
+    .select("id")
+    .eq("owner_id", ownerId)
+    .in("id", ids);
   if (error) return [];
-  return data || [];
+  const allowed = new Set((data || []).map((row) => row.id));
+  return hits.filter((h) => allowed.has(h?.kb_id || h?.knowledge_base_id || h?.id));
 }
 
 /* ---------- Embeddings + Vendor ---------- */
@@ -198,14 +244,14 @@ async function embedQuery(input) {
 }
 
 /* ---------- RAG (vector with gates) ---------- */
-async function kbSearchVector(q, k = 5) {
+async function kbSearchVector(q, ownerId, k = 5) {
   const qvec = await embedQuery(q);
   if (!qvec) return { hits: [], method: "lexical" };
 
   const { data, error } = await supabase.rpc("search_kb_vec", { qvec, k });
   if (error) return { hits: [], method: "lexical" };
 
-  const hits = data || [];
+  const hits = await filterHitsByOwner(data || [], ownerId);
   if (!hits.length) return { hits: [], method: "lexical" };
 
   const top = hits[0];
@@ -278,6 +324,7 @@ export async function POST(req) {
     }
 
     const BOT_ID = "11111111-1111-1111-1111-111111111111";
+    const botOwnerId = await getBotOwner(BOT_ID);
 
     // 1) Workflow
     const wf = await matchWorkflow(BOT_ID, text);
@@ -289,9 +336,9 @@ export async function POST(req) {
     // 2) RAG
     let hits = [];
     let ragMethod = "lexical";
-    const vec = await kbSearchVector(text, 5);
+    const vec = await kbSearchVector(text, botOwnerId, 5);
     if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
-    else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    else { hits = await kbSearchLex(text, botOwnerId, 4); ragMethod = "lexical"; }
 
     // 3) Answer
     const systemPrompt = "تو یک دستیار فارسی هستی که پاسخ‌های کوتاه، دقیق و قابل‌اجرا می‌دهد. اگر اطمینان نداری، شفاف بگو و سوال تکمیلی بپرس.";

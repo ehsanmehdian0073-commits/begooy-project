@@ -38,31 +38,31 @@ async function isNewUpdate(update_id: number) {
   //   updated_at timestamptz default now()
   // );
   const h = tokenHash(TG_TOKEN);
-  const { data, error } = await sb
+  const { data: inserted, error: insertError } = await sb
     .from("tg_updates")
+    .insert({ bot_token_hash: h, last_update_id: update_id })
     .select("last_update_id")
-    .eq("bot_token_hash", h)
     .maybeSingle();
 
-  if (error) {
-    console.error("tg_updates read error:", error);
-    return true; // fail-open to avoid Telegram retry loops
-  }
-
-  if (!data) {
-    await sb.from("tg_updates").insert({ bot_token_hash: h, last_update_id: update_id });
+  if (inserted) {
     return true;
   }
-
-  const last = Number(data.last_update_id || 0);
-  if (update_id > last) {
-    await sb
-      .from("tg_updates")
-      .update({ last_update_id: update_id, updated_at: new Date().toISOString() })
-      .eq("bot_token_hash", h);
-    return true;
+  if (insertError && insertError.code !== "23505") {
+    throw insertError;
   }
-  return false;
+
+  const { data: updated, error: updateError } = await sb
+    .from("tg_updates")
+    .update({ last_update_id: update_id, updated_at: new Date().toISOString() })
+    .eq("bot_token_hash", h)
+    .lt("last_update_id", update_id)
+    .select("last_update_id")
+    .maybeSingle();
+
+  if (updateError) {
+    throw updateError;
+  }
+  return !!updated;
 }
 
 function pickTextFromUpdate(u: any): { chatId?: string; text?: string; profileName?: string } {
@@ -126,8 +126,14 @@ export async function POST(req: NextRequest) {
     const update_id: number | undefined = body?.update_id;
     if (typeof update_id !== "number") return okJson({ ok: true, no_update_id: true });
 
-    // Dedup
-    const fresh = await isNewUpdate(update_id);
+    // Dedup must fail before side effects; Telegram can retry a transient DB error.
+    let fresh = false;
+    try {
+      fresh = await isNewUpdate(update_id);
+    } catch (e) {
+      console.error("tg_updates write error:", e);
+      return okJson({ ok: false, reason: "dedup_failed" }, 500);
+    }
     if (!fresh) return okJson({ ok: true, deduped: true });
 
     // Extract message info
