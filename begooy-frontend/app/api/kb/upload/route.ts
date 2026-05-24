@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { embedBatchWithDims } from "@/lib/kb/embed";
+import { requireUserId } from "@/utils/auth/requireUser";
 
 /** ---------- Config ---------- */
 const DEFAULT_BUCKET = "kb-uploads";
@@ -67,9 +68,10 @@ function chunkByTokens(text: string) {
 
   const flush = (force = false) => {
     if (!cur.length) return;
-    let joined = cur.join(" ");
-    if (joined.length > MAX_CHUNK_CHARS) joined = joined.slice(0, MAX_CHUNK_CHARS);
-    pieces.push(joined);
+    const joined = cur.join(" ");
+    for (let i = 0; i < joined.length; i += MAX_CHUNK_CHARS) {
+      pieces.push(joined.slice(i, i + MAX_CHUNK_CHARS));
+    }
     if (force) {
       cur = [];
       curTok = 0;
@@ -114,20 +116,19 @@ function chunkByTokens(text: string) {
   return pieces.map((c) => c.trim()).filter(Boolean);
 }
 
-function storagePathToBucketKey(storagePath: string) {
-  let bucket = DEFAULT_BUCKET,
-    filePath = storagePath;
-  if (storagePath.includes("/")) {
-    const [maybeBucket, ...rest] = storagePath.split("/");
-    if (maybeBucket) {
-      bucket = maybeBucket;
-      filePath = rest.join("/");
-    }
+function storagePathToBucketKey(storagePath: string, userId: string) {
+  let filePath = storagePath.replace(/^\/+/, "");
+  if (filePath.startsWith(`${DEFAULT_BUCKET}/`)) {
+    filePath = filePath.slice(DEFAULT_BUCKET.length + 1);
   }
+  if (!filePath || filePath.includes("..") || !filePath.startsWith(`${userId}/`)) {
+    throw new Error("storage_path_forbidden");
+  }
+  const bucket = DEFAULT_BUCKET;
   return { bucket, filePath };
 }
-async function loadTextFromStorage(storagePath: string): Promise<string> {
-  const { bucket, filePath } = storagePathToBucketKey(storagePath);
+async function loadTextFromStorage(storagePath: string, userId: string): Promise<string> {
+  const { bucket, filePath } = storagePathToBucketKey(storagePath, userId);
   const { data, error } = await sb.storage.from(bucket).download(filePath);
   if (error || !data)
     throw new Error(`storage download failed: ${error?.message ?? "unknown error"}`);
@@ -170,10 +171,9 @@ async function readBody(req: Request) {
 /** ---------- Route ---------- */
 export async function POST(req: Request) {
   try {
-    // ✅ الزام مالک: برای تست از هدر x-user-id استفاده می‌کنیم
-    const userId = (req.headers.get("x-user-id") || "").trim();
+    const userId = await requireUserId();
     if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
 
     // rate-limit per IP
@@ -188,7 +188,7 @@ export async function POST(req: Request) {
 
     const { text: textRaw, title, dims, storagePath } = await readBody(req);
     let text = typeof textRaw === "string" ? textRaw.trim() : "";
-    if (!text && storagePath) text = (await loadTextFromStorage(storagePath)).trim();
+    if (!text && storagePath) text = (await loadTextFromStorage(storagePath, userId)).trim();
     if (!text)
       return NextResponse.json(
         { ok: false, error: "text or storagePath is required" },
@@ -222,7 +222,7 @@ export async function POST(req: Request) {
     const vectorsByDim = await embedBatchWithDims(chunksRaw, dims as any);
 
     // records
-    const pathMeta = storagePath ? storagePathToBucketKey(storagePath) : null;
+    const pathMeta = storagePath ? storagePathToBucketKey(storagePath, userId) : null;
     const records = chunksRaw.map((content, idx) => {
       const tokens = estTokens(content);
       const meta_json = {
@@ -258,6 +258,9 @@ export async function POST(req: Request) {
       { status: 200 }
     );
   } catch (e: any) {
+    if (e?.message === "storage_path_forbidden") {
+      return NextResponse.json({ ok: false, error: "storage_path_forbidden" }, { status: 403 });
+    }
     if (e?.issues)
       return NextResponse.json(
         { ok: false, error: "validation_error", details: e.issues },
