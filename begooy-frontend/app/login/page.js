@@ -1,21 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import AuthLayout from "@/components/auth/AuthLayout";
 
 export default function LoginPage() {
   const supabase = createClient();
   const router = useRouter();
-  const search = useSearchParams();
-  const next = search.get("next") || "/dashboard/billing";
+  const [next, setNext] = useState("/dashboard/billing");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setNext(params.get("next") || "/dashboard/billing");
+  }, []);
 
   async function handleLogin(e) {
     e.preventDefault();

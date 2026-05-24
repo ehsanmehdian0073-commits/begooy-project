@@ -1,15 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import AuthLayout from "@/components/auth/AuthLayout";
 
 export default function SignupPage() {
   const supabase = createClient();
   const router = useRouter();
-  const search = useSearchParams();
-  const next = search.get("next") || "/dashboard/billing";
+  const [next, setNext] = useState("/dashboard/billing");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,6 +18,11 @@ export default function SignupPage() {
   const [accepted, setAccepted] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setNext(params.get("next") || "/dashboard/billing");
+  }, []);
 
   const validate = () => {
     if (!email || !password || !confirm) return "تمام فیلدها را پر کنید.";
