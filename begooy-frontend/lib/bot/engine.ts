@@ -166,6 +166,18 @@ function studioToRuntime(st: {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
+    const rawType = k1 || "noop";
+    const type =
+      k0 === "trigger" && rawType === "channel" ? "message_received"
+      : k0 === "action" && rawType === "send-message" ? "send_message"
+      : k0 === "action" && rawType === "tag-customer" ? "add_tag"
+      : k0 === "action" && rawType === "set-var" ? "set_var"
+      : k0 === "control" && rawType === "branch" ? "branch"
+      : k0 === "condition" && rawType === "ai-intent" ? "contains_any"
+      : k0 === "condition" && rawType === "regex" ? "regex"
+      : k0 === "action" && rawType === "delay" ? "delay_ms"
+      : k0 === "action" && rawType === "kb-answer" ? "kb_answer"
+      : "send_message";
     const rt: BotNode = {
       id: n.id,
       workflow_id: st.id,
@@ -173,7 +185,7 @@ function studioToRuntime(st: {
         k0 === "trigger" || k0 === "condition" || k0 === "action" || k0 === "control"
           ? (k0 as any)
           : "action",
-      type: (k1 || "noop") as any,
+      type,
       config: {
         // send-message
         textTemplate: n.data?.textTemplate,
@@ -201,19 +213,6 @@ function studioToRuntime(st: {
       label: null,
       priority: 0,
     } as any;
-
-    // نگاشت نام‌ها
-    if (rt.kind === "trigger" && rt.type === "channel") rt.type = "message_received";
-    if (rt.kind === "action" && rt.type === "send-message") rt.type = "send_message";
-    if (rt.kind === "action" && rt.type === "tag-customer") rt.type = "add_tag";
-    if (rt.kind === "action" && rt.type === "set-var") rt.type = "set_var";
-    if (rt.kind === "control" && rt.type === "branch") rt.type = "branch";
-
-    if (rt.kind === "condition" && rt.type === "ai-intent") rt.type = "contains_any";
-    if (rt.kind === "condition" && rt.type === "regex") rt.type = "regex";
-
-    if (rt.kind === "action" && rt.type === "delay") rt.type = "delay_ms";
-    if (rt.kind === "action" && rt.type === "kb-answer") rt.type = "kb_answer";
 
     return rt;
   });
