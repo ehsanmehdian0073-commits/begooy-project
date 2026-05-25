@@ -166,7 +166,7 @@ function studioToRuntime(st: {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
-    const rt: BotNode = {
+    const rt: any = {
       id: n.id,
       workflow_id: st.id,
       kind:
@@ -200,7 +200,7 @@ function studioToRuntime(st: {
       },
       label: null,
       priority: 0,
-    } as any;
+    };
 
     // نگاشت نام‌ها
     if (rt.kind === "trigger" && rt.type === "channel") rt.type = "message_received";
