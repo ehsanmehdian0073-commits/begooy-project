@@ -50,27 +50,27 @@ type TemplateKey = "support" | "sales" | "education" | "booking" | "hr";
 
 interface KBRef { type: "file" | "url" | "text" | "csv"; value: string; }
 interface WizardState {
-  step: number; setStep: (n: number) => void;
-  magicUrl: string; setMagicUrl: (v: string) => void;
+  step: number; setStep: React.Dispatch<React.SetStateAction<number>>;
+  magicUrl: string; setMagicUrl: React.Dispatch<React.SetStateAction<string>>;
   autoDetected: boolean;
 
-  template: TemplateKey; setTemplate: (t: TemplateKey) => void;
-  industry: Industry; setIndustry: (v: Industry) => void;
+  template: TemplateKey; setTemplate: React.Dispatch<React.SetStateAction<TemplateKey>>;
+  industry: Industry; setIndustry: React.Dispatch<React.SetStateAction<Industry>>;
 
-  name: string; setName: (v: string) => void;
-  avatarUrl?: string; setAvatarUrl: (v?: string) => void;
+  name: string; setName: React.Dispatch<React.SetStateAction<string>>;
+  avatarUrl?: string; setAvatarUrl: React.Dispatch<React.SetStateAction<string | undefined>>;
 
-  channels: string[]; setChannels: (v: string[]) => void;
-  kb: KBRef[]; setKb: (v: KBRef[]) => void;
+  channels: string[]; setChannels: React.Dispatch<React.SetStateAction<string[]>>;
+  kb: KBRef[]; setKb: React.Dispatch<React.SetStateAction<KBRef[]>>;
 
-  tone: "retail" | "support" | "edu"; setTone: (v: "retail"|"support"|"edu") => void;
-  vars: Record<string, string>; setVars: (fn: (prev: Record<string,string>) => Record<string,string>) => void;
+  tone: "retail" | "support" | "edu"; setTone: React.Dispatch<React.SetStateAction<"retail" | "support" | "edu">>;
+  vars: Record<string, string>; setVars: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 
-  userId: string | null; setUserId: (v: string | null) => void;
-  botId: string; setBotId: (v: string) => void;
+  userId: string | null; setUserId: React.Dispatch<React.SetStateAction<string | null>>;
+  botId: string; setBotId: React.Dispatch<React.SetStateAction<string>>;
 
-  saving: boolean; setSaving: (b: boolean) => void;
-  loadingMagic: boolean; setLoadingMagic: (b: boolean) => void;
+  saving: boolean; setSaving: React.Dispatch<React.SetStateAction<boolean>>;
+  loadingMagic: boolean; setLoadingMagic: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const WizardCtx = createContext<WizardState | null>(null);
