@@ -1,17 +1,11 @@
 // app/(dashboard)/inbox/page.tsx
 import InboxClient from "./_client";
-import { createClient } from "@supabase/supabase-js";
+import { createClientReadOnly } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-// فقط برای read اولیه در سرور
-const sb = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
 async function fetchInitial(limit = 200) {
+  const sb = await createClientReadOnly();
   const { data, error } = await sb
     .from("conversations")
     .select(`

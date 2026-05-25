@@ -1,14 +1,7 @@
-export const runtime = "edge";
-
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClientForAction } from "@/utils/supabase/server";
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+export const runtime = "nodejs";
 
 type Cursor = { createdAt: string; id: string } | null;
 
@@ -21,6 +14,18 @@ function parseCursor(cur?: string | null): Cursor {
 
 export async function GET(req: NextRequest) {
   try {
+    const sb = await createClientForAction();
+    const {
+      data: { user },
+    } = await sb.auth.getUser();
+
+    if (!user) {
+      return new Response(JSON.stringify({ ok: false, error: "unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
     const { searchParams } = new URL(req.url);
     const limit = Math.min(Number(searchParams.get("limit") ?? 20), 100);
     const platform = searchParams.get("platform") || undefined; // telegram / instagram / ...
