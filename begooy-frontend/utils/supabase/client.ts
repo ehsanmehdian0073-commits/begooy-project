@@ -7,7 +7,7 @@ type CookieOptions = {
   domain?: string;
   maxAge?: number;
   expires?: Date;
-  sameSite?: "lax" | "strict" | "none";
+  sameSite?: boolean | "lax" | "strict" | "none";
   secure?: boolean;
 };
 
@@ -18,7 +18,7 @@ function writeCookie(name: string, value: string, options: CookieOptions = {}) {
   if (options.expires) cookie += `; Expires=${options.expires.toUTCString()}`;
   cookie += `; Path=${options.path ?? "/"}`;
   if (options.domain) cookie += `; Domain=${options.domain}`;
-  if (options.sameSite) {
+  if (typeof options.sameSite === "string") {
     const s = options.sameSite === "none" ? "None" : options.sameSite[0].toUpperCase() + options.sameSite.slice(1);
     cookie += `; SameSite=${s}`;
   }
