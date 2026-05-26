@@ -120,17 +120,51 @@ async function matchWorkflow(botId, text) {
   return null;
 }
 
+async function getBotOwnerId(botId) {
+  const { data, error } = await supabase
+    .from("bots")
+    .select("user_id")
+    .eq("id", botId)
+    .maybeSingle();
+  if (error) {
+    console.warn("getBotOwnerId error:", error);
+    return null;
+  }
+  return data?.user_id || null;
+}
+
 /* ---------- RAG (lexical) ---------- */
-async function kbSearchLex(query, limit = 4) {
+async function kbSearchLex(query, ownerId, limit = 4) {
+  if (!ownerId) return [];
   const q = snip(cleanQ(query), 200);
   if (!q) return [];
-  const { data, error } = await supabase
+
+  const byTitle = await supabase
     .from("knowledge_base")
     .select("id, title, content")
-    .or(`title.ilike.%${q}%,content.ilike.%${q}%`)
+    .eq("owner_id", ownerId)
+    .ilike("title", `%${q}%`)
     .limit(limit);
-  if (error) return [];
-  return data || [];
+  if (byTitle.error) return [];
+
+  const rows = [...(byTitle.data || [])];
+  if (rows.length < limit) {
+    const seen = new Set(rows.map((r) => r.id));
+    const byContent = await supabase
+      .from("knowledge_base")
+      .select("id, title, content")
+      .eq("owner_id", ownerId)
+      .ilike("content", `%${q}%`)
+      .limit(limit);
+    if (!byContent.error) {
+      for (const row of byContent.data || []) {
+        if (!seen.has(row.id)) rows.push(row);
+        if (rows.length >= limit) break;
+      }
+    }
+  }
+
+  return rows.slice(0, limit);
 }
 
 /* ---------- Embeddings + Vendor ---------- */
@@ -198,7 +232,8 @@ async function embedQuery(input) {
 }
 
 /* ---------- RAG (vector with gates) ---------- */
-async function kbSearchVector(q, k = 5) {
+async function kbSearchVector(q, ownerId, k = 5) {
+  if (!ownerId) return { hits: [], method: "lexical" };
   const qvec = await embedQuery(q);
   if (!qvec) return { hits: [], method: "lexical" };
 
@@ -208,14 +243,30 @@ async function kbSearchVector(q, k = 5) {
   const hits = data || [];
   if (!hits.length) return { hits: [], method: "lexical" };
 
-  const top = hits[0];
+  const kbIds = Array.from(
+    new Set(hits.map((hit) => hit?.kb_id || hit?.kbId || hit?.id).filter(Boolean))
+  );
+  if (!kbIds.length) return { hits: [], method: "lexical" };
+
+  const { data: ownedKbs, error: ownerErr } = await supabase
+    .from("knowledge_base")
+    .select("id")
+    .eq("owner_id", ownerId)
+    .in("id", kbIds);
+  if (ownerErr) return { hits: [], method: "lexical" };
+
+  const allowed = new Set((ownedKbs || []).map((row) => row.id));
+  const scopedHits = hits.filter((hit) => allowed.has(hit?.kb_id || hit?.kbId || hit?.id));
+  if (!scopedHits.length) return { hits: [], method: "lexical" };
+
+  const top = scopedHits[0];
   const topDist = typeof top?.distance === "number" ? top.distance : undefined;
   const overlap = keywordOverlap(q, `${top?.title || ""} ${top?.content || ""}`);
 
   const passL2 = typeof topDist === "number" ? topDist <= RAG_MAX_L2 : true;
   const passLex = overlap >= RAG_MIN_OVERLAP;
 
-  if (passL2 && passLex) return { hits, method: "vector" };
+  if (passL2 && passLex) return { hits: scopedHits, method: "vector" };
   return { hits: [], method: "lexical" };
 }
 
@@ -278,6 +329,7 @@ export async function POST(req) {
     }
 
     const BOT_ID = "11111111-1111-1111-1111-111111111111";
+    const botOwnerId = await getBotOwnerId(BOT_ID);
 
     // 1) Workflow
     const wf = await matchWorkflow(BOT_ID, text);
@@ -289,9 +341,9 @@ export async function POST(req) {
     // 2) RAG
     let hits = [];
     let ragMethod = "lexical";
-    const vec = await kbSearchVector(text, 5);
+    const vec = await kbSearchVector(text, botOwnerId, 5);
     if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
-    else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    else { hits = await kbSearchLex(text, botOwnerId, 4); ragMethod = "lexical"; }
 
     // 3) Answer
     const systemPrompt = "تو یک دستیار فارسی هستی که پاسخ‌های کوتاه، دقیق و قابل‌اجرا می‌دهد. اگر اطمینان نداری، شفاف بگو و سوال تکمیلی بپرس.";
