@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { getAuthenticatedUserId, unauthorizedJson } from "@/lib/auth/routeUser";
 
 export const runtime = "nodejs";
 
@@ -12,13 +13,9 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
+      return unauthorizedJson();
     }
 
     // 2) اعتبارسنجی ورودی
@@ -35,16 +32,15 @@ export async function POST(req: Request) {
     if (selErr || !bot) {
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
     }
-    if (bot.user_id && bot.user_id !== userId) {
+    if (!bot.user_id || bot.user_id !== userId) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // 4) آپدیت پرامپت + ست مالک اگر تهی بود
+    // 4) آپدیت پرامپت
     const { data, error } = await sb
       .from("bots")
       .update({
         prompt,
-        user_id: bot.user_id ?? userId,
         updated_at: new Date().toISOString(), // اگر تریگر دارید می‌تونید حذف کنید
       })
       .eq("id", botId)

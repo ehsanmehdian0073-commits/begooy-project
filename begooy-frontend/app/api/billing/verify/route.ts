@@ -12,6 +12,10 @@ function abs(path: string, req: Request) {
   return new URL(path, origin).toString();
 }
 
+function allowMockBilling() {
+  return process.env.ALLOW_MOCK_BILLING === "true" && process.env.NODE_ENV !== "production";
+}
+
 async function verifyWithZarinpal(authority: string, amountRial: number): Promise<VerifyResult> {
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
   const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
@@ -77,9 +81,14 @@ export async function GET(req: Request) {
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=user_cancelled`, req));
     }
 
+    const isMockPayment = authority.startsWith("mock-") || payRow.gateway === "mock";
+    if (isMockPayment && !allowMockBilling()) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=mock_billing_disabled`, req));
+    }
+
     // mock یا واقعی
     let verify: VerifyResult = { ok: true };
-    if (!authority.startsWith("mock-")) {
+    if (!isMockPayment) {
       const amountRial = Number(payRow.amount_rial ?? 0);
       verify = await verifyWithZarinpal(authority, amountRial);
     }
@@ -90,17 +99,26 @@ export async function GET(req: Request) {
     }
 
     // پرداخت موفق
-    await supabase
+    const { data: paidRow, error: paidErr } = await supabase
       .from("payments")
       .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
-      .eq("id", payRow.id);
+      .eq("id", payRow.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (paidErr) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
+    if (!paidRow) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه ساده
     const now = new Date();
     const ends = new Date(now);
     ends.setMonth(ends.getMonth() + 1);
 
-    await supabase.from("subscriptions").insert([
+    const { error: subErr } = await supabase.from("subscriptions").insert([
       {
         user_id: payRow.user_id,
         plan_id: effectivePlan,
@@ -109,6 +127,10 @@ export async function GET(req: Request) {
         ends_at: ends.toISOString(),
       },
     ]);
+    if (subErr) {
+      await supabase.from("payments").update({ status: "pending" }).eq("id", payRow.id);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_insert_failed`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {
