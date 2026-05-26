@@ -59,7 +59,7 @@ export function createClient() {
         getAll() {
           return parseAll().map(({ name, value }) => ({ name, value }));
         },
-        setAll(cookies: Array<{ name: string; value: string; options?: CookieOptions }>) {
+        setAll(cookies: Array<{ name: string; value: string; options?: any }>) {
           cookies.forEach(({ name, value, options }) => writeCookie(name, value, options));
         },
 
@@ -67,10 +67,10 @@ export function createClient() {
         get(name: string) {
           return readCookie(name);
         },
-        set(name: string, value: string, options?: CookieOptions) {
+        set(name: string, value: string, options?: any) {
           writeCookie(name, value, options);
         },
-        remove(name: string, options?: CookieOptions) {
+        remove(name: string, options?: any) {
           deleteCookie(name, options);
         },
       },
