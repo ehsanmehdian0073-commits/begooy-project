@@ -162,11 +162,11 @@ function studioToRuntime(st: {
   name: string;
   nodes: StudioNode[];
   edges: StudioEdge[];
-}: Workflow) {
+}): Workflow {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
-    const rt: BotNode = {
+    const rt: any = {
       id: n.id,
       workflow_id: st.id,
       kind:
@@ -215,7 +215,7 @@ function studioToRuntime(st: {
     if (rt.kind === "action" && rt.type === "delay") rt.type = "delay_ms";
     if (rt.kind === "action" && rt.type === "kb-answer") rt.type = "kb_answer";
 
-    return rt;
+    return rt as BotNode;
   });
 
   const rEdges: BotEdge[] = st.edges.map((e) => ({

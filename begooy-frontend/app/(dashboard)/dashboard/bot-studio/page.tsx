@@ -47,30 +47,31 @@ const COLORS = {
 // Types / State
 type Industry = "aesthetics" | "dentistry" | "ecommerce" | "industrial" | "education" | "general";
 type TemplateKey = "support" | "sales" | "education" | "booking" | "hr";
+type StateSetter<T> = React.Dispatch<React.SetStateAction<T>>;
 
 interface KBRef { type: "file" | "url" | "text" | "csv"; value: string; }
 interface WizardState {
-  step: number; setStep: (n: number) => void;
-  magicUrl: string; setMagicUrl: (v: string) => void;
+  step: number; setStep: StateSetter<number>;
+  magicUrl: string; setMagicUrl: StateSetter<string>;
   autoDetected: boolean;
 
-  template: TemplateKey; setTemplate: (t: TemplateKey) => void;
-  industry: Industry; setIndustry: (v: Industry) => void;
+  template: TemplateKey; setTemplate: StateSetter<TemplateKey>;
+  industry: Industry; setIndustry: StateSetter<Industry>;
 
-  name: string; setName: (v: string) => void;
-  avatarUrl?: string; setAvatarUrl: (v?: string) => void;
+  name: string; setName: StateSetter<string>;
+  avatarUrl?: string; setAvatarUrl: StateSetter<string | undefined>;
 
-  channels: string[]; setChannels: (v: string[]) => void;
-  kb: KBRef[]; setKb: (v: KBRef[]) => void;
+  channels: string[]; setChannels: StateSetter<string[]>;
+  kb: KBRef[]; setKb: StateSetter<KBRef[]>;
 
-  tone: "retail" | "support" | "edu"; setTone: (v: "retail"|"support"|"edu") => void;
-  vars: Record<string, string>; setVars: (fn: (prev: Record<string,string>) => Record<string,string>) => void;
+  tone: "retail" | "support" | "edu"; setTone: StateSetter<"retail"|"support"|"edu">;
+  vars: Record<string, string>; setVars: StateSetter<Record<string,string>>;
 
-  userId: string | null; setUserId: (v: string | null) => void;
-  botId: string; setBotId: (v: string) => void;
+  userId: string | null; setUserId: StateSetter<string | null>;
+  botId: string; setBotId: StateSetter<string>;
 
-  saving: boolean; setSaving: (b: boolean) => void;
-  loadingMagic: boolean; setLoadingMagic: (b: boolean) => void;
+  saving: boolean; setSaving: StateSetter<boolean>;
+  loadingMagic: boolean; setLoadingMagic: StateSetter<boolean>;
 }
 
 const WizardCtx = createContext<WizardState | null>(null);
