@@ -10,7 +10,7 @@
  * - Auth یکپارچه + ensureBot خودکار
  */
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot, Sparkles, Play, Check, ChevronLeft, ChevronRight, Link as LinkIcon, Upload, FileText, BookOpen, Globe,
@@ -60,11 +60,11 @@ interface WizardState {
   name: string; setName: (v: string) => void;
   avatarUrl?: string; setAvatarUrl: (v?: string) => void;
 
-  channels: string[]; setChannels: (v: string[]) => void;
-  kb: KBRef[]; setKb: (v: KBRef[]) => void;
+  channels: string[]; setChannels: Dispatch<SetStateAction<string[]>>;
+  kb: KBRef[]; setKb: Dispatch<SetStateAction<KBRef[]>>;
 
   tone: "retail" | "support" | "edu"; setTone: (v: "retail"|"support"|"edu") => void;
-  vars: Record<string, string>; setVars: (fn: (prev: Record<string,string>) => Record<string,string>) => void;
+  vars: Record<string, string>; setVars: Dispatch<SetStateAction<Record<string,string>>>;
 
   userId: string | null; setUserId: (v: string | null) => void;
   botId: string; setBotId: (v: string) => void;
