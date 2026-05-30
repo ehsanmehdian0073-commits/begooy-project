@@ -1,6 +1,7 @@
 // app/api/billing/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server"; // ⬅️ تغییر مهم
+import { allowMockBilling, isZarinpalSandbox } from "@/utils/billing/gateway";
 
 // ─────────────────────────────── Helpers
 function extractLimits(p: any) {
@@ -124,17 +125,20 @@ export async function POST(req: Request) {
   const amountToman = Number(planRow.price ?? 0);
   const amountRial = Math.max(1000, Math.round(amountToman * 10));
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
-  const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
+  const IS_SANDBOX = isZarinpalSandbox();
   const APP_BASE_URL = process.env.APP_BASE_URL?.trim() || "http://localhost:3000";
   const hasGateway = Boolean(MERCHANT_ID && APP_BASE_URL);
+  const canUseMock = allowMockBilling();
   const base = IS_SANDBOX
     ? "https://sandbox.zarinpal.com/pg/v4"
     : "https://api.zarinpal.com/pg/v4";
 
   // 3) مقادیر پیش‌فرض (Mock)
-  let gatewayMode: "mock" | "zarinpal" = "mock";
-  let authority = `mock-${Date.now()}`;
-let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  let gatewayMode: "mock" | "zarinpal" | null = canUseMock ? "mock" : null;
+  let authority = canUseMock ? `mock-${Date.now()}` : "";
+  let redirectUrl = canUseMock
+    ? `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`
+    : "";
   // 4) اگر درگاه آماده است
   if (hasGateway) {
     try {
@@ -165,6 +169,10 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
     } catch (e) {
       console.error("[zarinpal.request.catch]", e);
     }
+  }
+
+  if (!gatewayMode || !authority || !redirectUrl) {
+    return NextResponse.json({ ok: false, error: "payment_gateway_unavailable" }, { status: 503 });
   }
 
   // 5) درج رکورد pending در payments
