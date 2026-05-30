@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { allowMockBilling, isMockPayment, isZarinpalSandbox } from "@/utils/billing/gateway";
 
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
@@ -24,8 +25,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, paid: true, already: true });
   }
 
-  // mock ⇒ موفق
-  if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
+  // mock ⇒ موفق فقط در محیط غیرپروداکشن با اجازه صریح
+  if (isMockPayment(p.authority, p.gateway)) {
+    if (!allowMockBilling()) {
+      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+      return NextResponse.json({ ok: false, error: "mock_billing_disabled" }, { status: 400 });
+    }
+
     await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
 
     // ایجاد/تمدید اشتراک یک‌ماهه
@@ -44,7 +50,7 @@ export async function POST(req: Request) {
 
   // واقعی ⇒ درخواست verify به زرین‌پال
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
-  const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
+  const IS_SANDBOX = isZarinpalSandbox();
   if (!MERCHANT_ID) return NextResponse.json({ ok: false, error: "MISSING_MERCHANT_ID" }, { status: 500 });
 
   const base = IS_SANDBOX

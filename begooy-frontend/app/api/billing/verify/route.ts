@@ -1,6 +1,7 @@
 // app/api/billing/verify/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { allowMockBilling, isMockPayment, isZarinpalSandbox } from "@/utils/billing/gateway";
 
 type VerifyResult =
   | { ok: true; cardHash?: string; refId?: string }
@@ -14,7 +15,7 @@ function abs(path: string, req: Request) {
 
 async function verifyWithZarinpal(authority: string, amountRial: number): Promise<VerifyResult> {
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
-  const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
+  const IS_SANDBOX = isZarinpalSandbox();
   if (!MERCHANT_ID) return { ok: false, error: "MISSING_MERCHANT_ID" };
 
   const base = IS_SANDBOX
@@ -78,8 +79,14 @@ export async function GET(req: Request) {
     }
 
     // mock یا واقعی
+    const mockPayment = isMockPayment(authority, payRow.gateway);
+    if (mockPayment && !allowMockBilling()) {
+      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=mock_billing_disabled`, req));
+    }
+
     let verify: VerifyResult = { ok: true };
-    if (!authority.startsWith("mock-")) {
+    if (!mockPayment) {
       const amountRial = Number(payRow.amount_rial ?? 0);
       verify = await verifyWithZarinpal(authority, amountRial);
     }
