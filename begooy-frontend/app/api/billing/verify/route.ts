@@ -1,6 +1,6 @@
 // app/api/billing/verify/route.ts
 import { NextResponse } from "next/server";
-import { createClientForAction } from "@/utils/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type VerifyResult =
   | { ok: true; cardHash?: string; refId?: string }
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
       return NextResponse.redirect(abs(`/dashboard/billing?plan=${encodeURIComponent(planIdQ)}&paid=0&err=bad_params`, req));
     }
 
-    const supabase = await createClientForAction(); // مهم: await
+    const supabase = supabaseAdmin;
 
     const { data: payRow, error: payFindErr } = await supabase
       .from("payments")
@@ -73,7 +73,10 @@ export async function GET(req: Request) {
     }
 
     if (status !== "OK") {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      const { error: failErr } = await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      if (failErr) {
+        console.error("[billing.verify.payment_cancel_update]", failErr);
+      }
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=user_cancelled`, req));
     }
 
@@ -85,22 +88,29 @@ export async function GET(req: Request) {
     }
 
     if (!verify.ok) {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      const { error: failErr } = await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      if (failErr) {
+        console.error("[billing.verify.payment_failed_update]", failErr);
+      }
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=${encodeURIComponent((verify as any).error)}`, req));
     }
 
     // پرداخت موفق
-    await supabase
+    const { error: payErr } = await supabase
       .from("payments")
       .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
       .eq("id", payRow.id);
+    if (payErr) {
+      console.error("[billing.verify.payment_update]", payErr);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه ساده
     const now = new Date();
     const ends = new Date(now);
     ends.setMonth(ends.getMonth() + 1);
 
-    await supabase.from("subscriptions").insert([
+    const { error: subErr } = await supabase.from("subscriptions").insert([
       {
         user_id: payRow.user_id,
         plan_id: effectivePlan,
@@ -109,6 +119,17 @@ export async function GET(req: Request) {
         ends_at: ends.toISOString(),
       },
     ]);
+    if (subErr) {
+      console.error("[billing.verify.subscription_insert]", subErr);
+      const { error: rollbackErr } = await supabase
+        .from("payments")
+        .update({ status: "pending", ref_id: null })
+        .eq("id", payRow.id);
+      if (rollbackErr) {
+        console.error("[billing.verify.payment_rollback]", rollbackErr);
+      }
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_create_failed`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {
