@@ -162,7 +162,7 @@ function studioToRuntime(st: {
   name: string;
   nodes: StudioNode[];
   edges: StudioEdge[];
-}: Workflow) {
+}): Workflow {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
@@ -202,18 +202,19 @@ function studioToRuntime(st: {
       priority: 0,
     } as any;
 
-    // نگاشت نام‌ها
-    if (rt.kind === "trigger" && rt.type === "channel") rt.type = "message_received";
-    if (rt.kind === "action" && rt.type === "send-message") rt.type = "send_message";
-    if (rt.kind === "action" && rt.type === "tag-customer") rt.type = "add_tag";
-    if (rt.kind === "action" && rt.type === "set-var") rt.type = "set_var";
-    if (rt.kind === "control" && rt.type === "branch") rt.type = "branch";
+    // نگاشت نام‌های Studio به نوع‌های Runtime
+    const sourceType = rt.type as string;
+    if (rt.kind === "trigger" && sourceType === "channel") rt.type = "message_received";
+    if (rt.kind === "action" && sourceType === "send-message") rt.type = "send_message";
+    if (rt.kind === "action" && sourceType === "tag-customer") rt.type = "add_tag";
+    if (rt.kind === "action" && sourceType === "set-var") rt.type = "set_var";
+    if (rt.kind === "control" && sourceType === "branch") rt.type = "branch";
 
-    if (rt.kind === "condition" && rt.type === "ai-intent") rt.type = "contains_any";
-    if (rt.kind === "condition" && rt.type === "regex") rt.type = "regex";
+    if (rt.kind === "condition" && sourceType === "ai-intent") rt.type = "contains_any";
+    if (rt.kind === "condition" && sourceType === "regex") rt.type = "regex";
 
-    if (rt.kind === "action" && rt.type === "delay") rt.type = "delay_ms";
-    if (rt.kind === "action" && rt.type === "kb-answer") rt.type = "kb_answer";
+    if (rt.kind === "action" && sourceType === "delay") rt.type = "delay_ms";
+    if (rt.kind === "action" && sourceType === "kb-answer") rt.type = "kb_answer";
 
     return rt;
   });

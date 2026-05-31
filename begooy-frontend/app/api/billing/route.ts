@@ -182,6 +182,7 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
 
   if (insErr) {
     console.error("[payments.insert.error]", insErr);
+    return NextResponse.json({ ok: false, error: "payment_create_failed" }, { status: 500 });
   }
 
   return NextResponse.json({

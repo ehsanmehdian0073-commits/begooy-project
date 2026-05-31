@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "db_select_failed", details: selErr.message }, { status: 400 });
     }
     if (existing && existing.length > 0) {
-      return NextResponse.json({ ok: true, bot: existing[0] }, { status: 200 });
+      return NextResponse.json({ ok: true, botId: existing[0].id, bot: existing[0] }, { status: 200 });
     }
 
     // 2) در غیر این‌صورت یکی بساز
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "db_insert_failed", details: insErr?.message }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, bot: inserted }, { status: 200 });
+    return NextResponse.json({ ok: true, botId: inserted.id, bot: inserted }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "unexpected_error" }, { status: 500 });
   }

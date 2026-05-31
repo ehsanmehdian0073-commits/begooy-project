@@ -19,7 +19,7 @@ export type EventPayload = {
   ctx?: Record<string, any>; // دادهٔ کمکی در طول اجرای فلو
 };
 
-export type NodeKind = "trigger" | "condition" | "action";
+export type NodeKind = "trigger" | "condition" | "action" | "control";
 
 export type NodeType =
   // Triggers
@@ -35,7 +35,8 @@ export type NodeType =
   | "delay_ms"
   | "call_webhook"
   | "set_var"
-  | "kb_answer";
+  | "kb_answer"
+  | "branch";
 
 export type BotNode = {
   id: string;

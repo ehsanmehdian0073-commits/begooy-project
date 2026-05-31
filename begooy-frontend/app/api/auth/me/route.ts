@@ -16,7 +16,7 @@ function parseJwt(token: string | undefined) {
 
 export async function GET() {
   try {
-    const c = cookies();
+    const c = await cookies();
 
     // نام‌های رایج کوکی‌های Supabase (بسته به تنظیمات/هلپرها ممکنه یکی از این‌ها باشه)
     const token =

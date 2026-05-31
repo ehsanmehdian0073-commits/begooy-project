@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
@@ -26,18 +27,33 @@ export async function POST(req: Request) {
 
   // mock ⇒ موفق
   if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
-    await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+    const { error: payErr } = await supabaseAdmin.from("payments").update({ status: "paid" }).eq("id", p.id);
+    if (payErr) {
+      console.error("[billing.reverify.mock_payment_update]", payErr);
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { error: subErr } = await supabaseAdmin.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
       started_at: now.toISOString(),
       ends_at: ends.toISOString(),
     }]);
+    if (subErr) {
+      console.error("[billing.reverify.mock_subscription_insert]", subErr);
+      const { error: rollbackErr } = await supabaseAdmin
+        .from("payments")
+        .update({ status: "pending", ref_id: null })
+        .eq("id", p.id);
+      if (rollbackErr) {
+        console.error("[billing.reverify.mock_payment_rollback]", rollbackErr);
+      }
+      return NextResponse.json({ ok: false, error: "subscription_create_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   }
@@ -66,28 +82,49 @@ export async function POST(req: Request) {
     const json = await res.json().catch(() => ({} as any));
     const ok = json?.data?.code === 100 || json?.data?.code === 101;
     if (!ok) {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+      const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", p.id);
+      if (failErr) {
+        console.error("[billing.reverify.verify_failed_update]", failErr);
+      }
       return NextResponse.json({ ok: false, error: "verify_failed" }, { status: 400 });
     }
 
-    await supabase.from("payments").update({
+    const { error: payErr } = await supabaseAdmin.from("payments").update({
       status: "paid",
       ref_id: String(json?.data?.ref_id ?? ""),
     }).eq("id", p.id);
+    if (payErr) {
+      console.error("[billing.reverify.payment_update]", payErr);
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { error: subErr } = await supabaseAdmin.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
       started_at: now.toISOString(),
       ends_at: ends.toISOString(),
     }]);
+    if (subErr) {
+      console.error("[billing.reverify.subscription_insert]", subErr);
+      const { error: rollbackErr } = await supabaseAdmin
+        .from("payments")
+        .update({ status: "pending", ref_id: null })
+        .eq("id", p.id);
+      if (rollbackErr) {
+        console.error("[billing.reverify.payment_rollback]", rollbackErr);
+      }
+      return NextResponse.json({ ok: false, error: "subscription_create_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   } catch {
-    await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+    const { error: failErr } = await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", p.id);
+    if (failErr) {
+      console.error("[billing.reverify.catch_failed_update]", failErr);
+    }
     return NextResponse.json({ ok: false, error: "verify_catch" }, { status: 500 });
   }
 }
