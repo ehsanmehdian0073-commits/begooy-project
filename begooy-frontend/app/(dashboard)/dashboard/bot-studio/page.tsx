@@ -47,30 +47,31 @@ const COLORS = {
 // Types / State
 type Industry = "aesthetics" | "dentistry" | "ecommerce" | "industrial" | "education" | "general";
 type TemplateKey = "support" | "sales" | "education" | "booking" | "hr";
+type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
 interface KBRef { type: "file" | "url" | "text" | "csv"; value: string; }
 interface WizardState {
-  step: number; setStep: (n: number) => void;
-  magicUrl: string; setMagicUrl: (v: string) => void;
+  step: number; setStep: Setter<number>;
+  magicUrl: string; setMagicUrl: Setter<string>;
   autoDetected: boolean;
 
-  template: TemplateKey; setTemplate: (t: TemplateKey) => void;
-  industry: Industry; setIndustry: (v: Industry) => void;
+  template: TemplateKey; setTemplate: Setter<TemplateKey>;
+  industry: Industry; setIndustry: Setter<Industry>;
 
-  name: string; setName: (v: string) => void;
-  avatarUrl?: string; setAvatarUrl: (v?: string) => void;
+  name: string; setName: Setter<string>;
+  avatarUrl?: string; setAvatarUrl: Setter<string | undefined>;
 
-  channels: string[]; setChannels: (v: string[]) => void;
-  kb: KBRef[]; setKb: (v: KBRef[]) => void;
+  channels: string[]; setChannels: Setter<string[]>;
+  kb: KBRef[]; setKb: Setter<KBRef[]>;
 
-  tone: "retail" | "support" | "edu"; setTone: (v: "retail"|"support"|"edu") => void;
-  vars: Record<string, string>; setVars: (fn: (prev: Record<string,string>) => Record<string,string>) => void;
+  tone: "retail" | "support" | "edu"; setTone: Setter<"retail"|"support"|"edu">;
+  vars: Record<string, string>; setVars: Setter<Record<string,string>>;
 
-  userId: string | null; setUserId: (v: string | null) => void;
-  botId: string; setBotId: (v: string) => void;
+  userId: string | null; setUserId: Setter<string | null>;
+  botId: string; setBotId: Setter<string>;
 
-  saving: boolean; setSaving: (b: boolean) => void;
-  loadingMagic: boolean; setLoadingMagic: (b: boolean) => void;
+  saving: boolean; setSaving: Setter<boolean>;
+  loadingMagic: boolean; setLoadingMagic: Setter<boolean>;
 }
 
 const WizardCtx = createContext<WizardState | null>(null);
