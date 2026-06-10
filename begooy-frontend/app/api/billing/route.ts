@@ -127,14 +127,24 @@ export async function POST(req: Request) {
   const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
   const APP_BASE_URL = process.env.APP_BASE_URL?.trim() || "http://localhost:3000";
   const hasGateway = Boolean(MERCHANT_ID && APP_BASE_URL);
+  const allowMockBilling =
+    process.env.ALLOW_MOCK_BILLING === "true" && process.env.NODE_ENV !== "production";
   const base = IS_SANDBOX
     ? "https://sandbox.zarinpal.com/pg/v4"
     : "https://api.zarinpal.com/pg/v4";
 
+  if (!hasGateway && !allowMockBilling) {
+    return NextResponse.json(
+      { ok: false, error: "billing_gateway_unavailable" },
+      { status: 503 }
+    );
+  }
+
   // 3) مقادیر پیش‌فرض (Mock)
   let gatewayMode: "mock" | "zarinpal" = "mock";
   let authority = `mock-${Date.now()}`;
-let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  let gatewayError: string | null = null;
   // 4) اگر درگاه آماده است
   if (hasGateway) {
     try {
@@ -160,11 +170,20 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
           : `https://www.zarinpal.com/pg/StartPay/${authority}`;
         gatewayMode = "zarinpal";
       } else {
+        gatewayError = json?.errors?.message ?? json?.data?.message ?? "gateway_request_failed";
         console.error("[zarinpal.request.error]", json);
       }
     } catch (e) {
+      gatewayError = e instanceof Error ? e.message : "gateway_request_failed";
       console.error("[zarinpal.request.catch]", e);
     }
+  }
+
+  if (hasGateway && gatewayMode !== "zarinpal") {
+    return NextResponse.json(
+      { ok: false, error: gatewayError ?? "gateway_request_failed" },
+      { status: 502 }
+    );
   }
 
   // 5) درج رکورد pending در payments
@@ -182,6 +201,7 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
 
   if (insErr) {
     console.error("[payments.insert.error]", insErr);
+    return NextResponse.json({ ok: false, error: "payment_record_failed" }, { status: 500 });
   }
 
   return NextResponse.json({
