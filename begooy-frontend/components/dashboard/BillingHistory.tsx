@@ -118,7 +118,7 @@ export default function BillingHistory() {
             });
             const j = await r.json();
             if (j?.ok) {
-              toast.success("پرداخت معلق حذف شد");
+              toast.success("پرداخت معلق لغو شد");
               await refetch();
             } else {
               toast.error(j?.error || "لغو ناموفق بود");
@@ -131,7 +131,7 @@ export default function BillingHistory() {
           }
         },
       },
-      cancel: { label: "انصراف" },
+      cancel: "انصراف",
       duration: 8000,
     });
   }
@@ -151,7 +151,7 @@ export default function BillingHistory() {
             });
             const j = await r.json();
             if (j?.ok) {
-              toast.success("تمام پرداخت‌های در انتظار حذف شدند");
+              toast.success("تمام پرداخت‌های در انتظار لغو شدند");
               await refetch();
             } else {
               toast.error(j?.error || "حذف همه ناموفق بود");
@@ -163,7 +163,7 @@ export default function BillingHistory() {
           }
         },
       },
-      cancel: { label: "انصراف" },
+      cancel: "انصراف",
       duration: 8000,
     });
   }

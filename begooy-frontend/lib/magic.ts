@@ -21,6 +21,16 @@ type KBHint =
   | { type: "url"; value: string; title?: string }
   | { type: "text"; value: string; title?: string };
 
+export type Industry =
+  | "aesthetics"
+  | "dentistry"
+  | "ecommerce"
+  | "industrial"
+  | "education"
+  | "general";
+
+export type TemplateKey = "support" | "sales" | "education" | "booking" | "hr";
+
 // ───────────────────────────────────────────────────────────────────────────────
 // URL helpers
 
