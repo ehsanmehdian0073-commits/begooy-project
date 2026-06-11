@@ -166,14 +166,32 @@ function studioToRuntime(st: {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
+    const rawKind = k0 === "filter" ? "condition" : k0;
+    const runtimeKind =
+      rawKind === "trigger" || rawKind === "condition" || rawKind === "action" || rawKind === "control"
+        ? rawKind
+        : "action";
+    let runtimeType = k1 || "noop";
+
+    // نگاشت نام‌ها
+    if (runtimeKind === "trigger" && runtimeType === "channel") runtimeType = "message_received";
+    if (runtimeKind === "action" && runtimeType === "send-message") runtimeType = "send_message";
+    if (runtimeKind === "action" && runtimeType === "tag-customer") runtimeType = "add_tag";
+    if (runtimeKind === "action" && runtimeType === "set-var") runtimeType = "set_var";
+    if (runtimeKind === "control" && runtimeType === "branch") runtimeType = "branch";
+
+    if (runtimeKind === "condition" && runtimeType === "ai-intent") runtimeType = "contains_any";
+    if (runtimeKind === "condition" && runtimeType === "regex") runtimeType = "regex";
+
+    if (runtimeKind === "control" && runtimeType === "delay") runtimeType = "delay_ms";
+    if (runtimeKind === "action" && runtimeType === "delay") runtimeType = "delay_ms";
+    if (runtimeKind === "action" && runtimeType === "kb-answer") runtimeType = "kb_answer";
+
     const rt: BotNode = {
       id: n.id,
       workflow_id: st.id,
-      kind:
-        k0 === "trigger" || k0 === "condition" || k0 === "action" || k0 === "control"
-          ? (k0 as any)
-          : "action",
-      type: (k1 || "noop") as any,
+      kind: runtimeKind as any,
+      type: runtimeType as any,
       config: {
         // send-message
         textTemplate: n.data?.textTemplate,
@@ -201,19 +219,6 @@ function studioToRuntime(st: {
       label: null,
       priority: 0,
     } as any;
-
-    // نگاشت نام‌ها
-    if (rt.kind === "trigger" && rt.type === "channel") rt.type = "message_received";
-    if (rt.kind === "action" && rt.type === "send-message") rt.type = "send_message";
-    if (rt.kind === "action" && rt.type === "tag-customer") rt.type = "add_tag";
-    if (rt.kind === "action" && rt.type === "set-var") rt.type = "set_var";
-    if (rt.kind === "control" && rt.type === "branch") rt.type = "branch";
-
-    if (rt.kind === "condition" && rt.type === "ai-intent") rt.type = "contains_any";
-    if (rt.kind === "condition" && rt.type === "regex") rt.type = "regex";
-
-    if (rt.kind === "action" && rt.type === "delay") rt.type = "delay_ms";
-    if (rt.kind === "action" && rt.type === "kb-answer") rt.type = "kb_answer";
 
     return rt;
   });
