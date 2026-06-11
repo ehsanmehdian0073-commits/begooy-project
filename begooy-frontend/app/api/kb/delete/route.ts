@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { getAuthenticatedUserId, unauthorizedResponse } from "@/lib/auth/route";
 
 // ورودی را هم از body و هم از query می‌پذیریم
 const BodySchema = z.object({
@@ -9,9 +10,9 @@ const BodySchema = z.object({
 });
 
 async function handleDelete(req: NextRequest) {
-  const userId = (req.headers.get("x-user-id") || "").trim();
+  const userId = await getAuthenticatedUserId();
   if (!userId) {
-    return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+    return unauthorizedResponse();
   }
 
   // جمع‌آوری kbId از body یا query

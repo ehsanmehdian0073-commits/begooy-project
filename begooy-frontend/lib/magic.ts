@@ -2,6 +2,16 @@
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Types
+export type Industry =
+  | "ecommerce"
+  | "industrial"
+  | "aesthetics"
+  | "dentistry"
+  | "education"
+  | "general";
+
+export type TemplateKey = "support" | "sales" | "education" | "booking" | "hr";
+
 type Meta = {
   title?: string;
   description?: string;
