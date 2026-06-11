@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { getAuthenticatedUserId, unauthorizedResponse } from "@/lib/auth/route";
 
 export const runtime = "nodejs";
 
@@ -33,20 +34,14 @@ const BodySchema = z
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
+      return unauthorizedResponse();
     }
 
-    // 2) اعتبارسنجی ورودی
     const json = await req.json();
     const { botId, settings } = BodySchema.parse(json);
 
-    // 3) خواندن Bot برای مالکیت و مقادیر قبلی
     const { data: bot, error: selErr } = await sb
       .from("bots")
       .select("id, user_id, settings_json")
@@ -60,11 +55,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // 4) Merge سطحی (در صورت نیاز می‌تونیم Deep Merge بذاریم)
     const prev = (bot.settings_json ?? {}) as Record<string, any>;
     const merged = { ...prev, ...settings };
 
-    // 5) آپدیت + مالک اگر تهی بود
     const { data, error } = await sb
       .from("bots")
       .update({

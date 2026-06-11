@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { getAuthenticatedUserId, unauthorizedResponse } from "@/lib/auth/route";
 
 const BodySchema = z.object({
   // اختیاری: اگر خواستی نام اولیه بدهی
@@ -9,9 +10,9 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const userId = req.headers.get("x-user-id");
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_x_user_id_header" }, { status: 401 });
+      return unauthorizedResponse();
     }
     const json = await req.json().catch(() => ({}));
     const { name } = BodySchema.parse(json);
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "db_select_failed", details: selErr.message }, { status: 400 });
     }
     if (existing && existing.length > 0) {
-      return NextResponse.json({ ok: true, bot: existing[0] }, { status: 200 });
+      return NextResponse.json({ ok: true, bot: existing[0], botId: existing[0].id }, { status: 200 });
     }
 
     // 2) در غیر این‌صورت یکی بساز
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "db_insert_failed", details: insErr?.message }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, bot: inserted }, { status: 200 });
+    return NextResponse.json({ ok: true, bot: inserted, botId: inserted.id }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? "unexpected_error" }, { status: 500 });
   }

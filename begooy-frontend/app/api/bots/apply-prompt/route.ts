@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { getAuthenticatedUserId, unauthorizedResponse } from "@/lib/auth/route";
 
 export const runtime = "nodejs";
 
@@ -12,20 +13,14 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
+      return unauthorizedResponse();
     }
 
-    // 2) اعتبارسنجی ورودی
     const json = await req.json();
     const { botId, prompt } = BodySchema.parse(json);
 
-    // 3) وجود و مالکیت بات
     const { data: bot, error: selErr } = await sb
       .from("bots")
       .select("id, user_id")
@@ -39,7 +34,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
-    // 4) آپدیت پرامپت + ست مالک اگر تهی بود
     const { data, error } = await sb
       .from("bots")
       .update({

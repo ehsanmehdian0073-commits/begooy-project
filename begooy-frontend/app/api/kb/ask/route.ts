@@ -1,11 +1,13 @@
 // app/api/kb/ask/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import {
+  getAuthenticatedUserId,
+  sameOriginJsonHeaders,
+  unauthorizedResponse,
+} from "@/lib/auth/route";
 
 /** ---------- Config ---------- */
-const BASE =
-  process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/+$/, "") || "http://localhost:3000";
-
 const DEFAULT_LIMIT = 5;
 const DEFAULT_MIN_SIM = 0.2;                 // fallback semantic
 const DEFAULT_DIMS = [1536];                 // fallback
@@ -98,10 +100,9 @@ export async function POST(req: NextRequest) {
   const openai = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY! }) : null;
 
   try {
-    // Owner required
-    const userId = (req.headers.get("x-user-id") || "").trim();
+    const userId = await getAuthenticatedUserId();
     if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
+      return unauthorizedResponse();
     }
 
     // Body
@@ -138,10 +139,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const passHeaders: HeadersInit = {
-      "Content-Type": "application/json",
-      "x-user-id": userId,
-    };
+    const passHeaders = sameOriginJsonHeaders(req);
+    const base = req.nextUrl.origin;
 
     // ---------- Retrieval
     let mode: "hybrid" | "semantic" | "no-context" | "dry-run" = "hybrid";
@@ -149,7 +148,7 @@ export async function POST(req: NextRequest) {
 
     if (useHybrid) {
       try {
-        const hres = await fetch(`${BASE}/api/kb/search-hybrid`, {
+        const hres = await fetch(`${base}/api/kb/search-hybrid`, {
           method: "POST",
           headers: passHeaders,
           cache: "no-store",
@@ -176,7 +175,7 @@ export async function POST(req: NextRequest) {
     if (!results.length) {
       mode = "semantic";
       try {
-        const sres = await fetch(`${BASE}/api/kb/search`, {
+        const sres = await fetch(`${base}/api/kb/search`, {
           method: "POST",
           headers: passHeaders,
           cache: "no-store",
@@ -191,7 +190,7 @@ export async function POST(req: NextRequest) {
       // Last-chance: minSim=0 for citations
       if (!results.length) {
         try {
-          const fb = await fetch(`${BASE}/api/kb/search`, {
+          const fb = await fetch(`${base}/api/kb/search`, {
             method: "POST",
             headers: passHeaders,
             cache: "no-store",
