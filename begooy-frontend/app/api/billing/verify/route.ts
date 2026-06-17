@@ -1,6 +1,7 @@
 // app/api/billing/verify/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { fulfillPayment } from "../_fulfillment";
 
 type VerifyResult =
   | { ok: true; cardHash?: string; refId?: string }
@@ -67,13 +68,8 @@ export async function GET(req: Request) {
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_not_found`, req));
     }
 
-    // اگر قبلاً paid شده، دوباره کاری نکن
-    if (payRow.status === "paid") {
-      return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
-    }
-
     if (status !== "OK") {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id).neq("status", "paid");
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=user_cancelled`, req));
     }
 
@@ -85,30 +81,19 @@ export async function GET(req: Request) {
     }
 
     if (!verify.ok) {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+      await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id).neq("status", "paid");
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=${encodeURIComponent((verify as any).error)}`, req));
     }
 
-    // پرداخت موفق
-    await supabase
-      .from("payments")
-      .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
-      .eq("id", payRow.id);
+    const fulfilled = await fulfillPayment(
+      supabase,
+      { id: payRow.id, user_id: payRow.user_id, plan_id: effectivePlan, status: payRow.status },
+      "refId" in verify ? verify.refId ?? null : null,
+    );
 
-    // ایجاد/تمدید اشتراک یک‌ماهه ساده
-    const now = new Date();
-    const ends = new Date(now);
-    ends.setMonth(ends.getMonth() + 1);
-
-    await supabase.from("subscriptions").insert([
-      {
-        user_id: payRow.user_id,
-        plan_id: effectivePlan,
-        status: "active",
-        started_at: now.toISOString(),
-        ends_at: ends.toISOString(),
-      },
-    ]);
+    if (!fulfilled.ok) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=${encodeURIComponent(fulfilled.error)}`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {
