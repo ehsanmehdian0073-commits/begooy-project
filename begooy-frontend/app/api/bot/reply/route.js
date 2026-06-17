@@ -30,6 +30,7 @@ const supabase = SRV_KEY
 /* ---------- RAG gating ---------- */
 const RAG_MAX_L2 = Number(process.env.RAG_MAX_L2 || 0.8);
 const RAG_MIN_OVERLAP = Math.max(0, Number(process.env.RAG_MIN_OVERLAP || 1));
+const ENABLE_PUBLIC_BOT_RAG = String(process.env.ENABLE_PUBLIC_BOT_RAG || "false") === "true";
 
 /* ---------- Helpers ---------- */
 const snip = (s, n = 220) => (s || "").toString().slice(0, n);
@@ -288,10 +289,12 @@ export async function POST(req) {
 
     // 2) RAG
     let hits = [];
-    let ragMethod = "lexical";
-    const vec = await kbSearchVector(text, 5);
-    if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
-    else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    let ragMethod = "disabled";
+    if (ENABLE_PUBLIC_BOT_RAG) {
+      const vec = await kbSearchVector(text, 5);
+      if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
+      else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    }
 
     // 3) Answer
     const systemPrompt = "تو یک دستیار فارسی هستی که پاسخ‌های کوتاه، دقیق و قابل‌اجرا می‌دهد. اگر اطمینان نداری، شفاف بگو و سوال تکمیلی بپرس.";

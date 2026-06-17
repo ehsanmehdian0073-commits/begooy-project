@@ -101,7 +101,7 @@ function binarySearchPrefix(prefix: number[], value: number) {
   return lo;
 }
 
-export default function InboxClient({ initialItems }: { initialItems: InboxItem[] }) {
+export default function InboxClient({ initialItems, userId }: { initialItems: InboxItem[]; userId: string | null }) {
   const [items, setItems] = useState<InboxItem[]>(initialItems);
 
   // Filters
@@ -123,9 +123,13 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
 
   /* Realtime */
   useEffect(() => {
+    if (!userId) return;
     const channel = sb
       .channel("rt-inbox-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, (p: any) => {
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations", filter: `user_id=eq.${userId}` },
+        (p: any) => {
         if (p.eventType === "INSERT") {
           setItems((prev) => [p.new as InboxItem, ...prev]);
         } else if (p.eventType === "UPDATE") {
@@ -135,9 +139,10 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
       })
       .subscribe();
     return () => { sb.removeChannel(channel); };
-  }, []);
+  }, [userId]);
 
   async function refreshNow() {
+    if (!userId) return;
     const { data } = await sb
       .from("conversations")
       .select(`
@@ -145,6 +150,7 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
         delivery_status, external_ref, created_at, profile_name, direction,
         is_read, is_resolved, needs_human, priority
       `)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(500);
     if (data) { setItems(data as any); setLastUpdated(new Date()); }
@@ -255,11 +261,13 @@ export default function InboxClient({ initialItems }: { initialItems: InboxItem[
   }
   async function updateRow(id: string, data: Partial<InboxItem>) {
     patchLocal(id, data);
-    await sb.from("conversations").update(data).eq("id", id);
+    if (!userId) return;
+    await sb.from("conversations").update(data).eq("id", id).eq("user_id", userId);
   }
   async function updateMany(ids: string[], data: Partial<InboxItem>) {
     setItems((prev) => prev.map((x) => (ids.includes(x.id) ? ({ ...x, ...data }) : x)));
-    await sb.from("conversations").update(data).in("id", ids);
+    if (!userId) return;
+    await sb.from("conversations").update(data).in("id", ids).eq("user_id", userId);
   }
 
   function toggleRead(id: string, value?: boolean) {

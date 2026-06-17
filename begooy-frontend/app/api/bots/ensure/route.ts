@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireAuthenticatedUserId } from "../../_auth";
 
 const BodySchema = z.object({
   // اختیاری: اگر خواستی نام اولیه بدهی
@@ -9,10 +10,8 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const userId = req.headers.get("x-user-id");
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_x_user_id_header" }, { status: 401 });
-    }
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
     const json = await req.json().catch(() => ({}));
     const { name } = BodySchema.parse(json);
 

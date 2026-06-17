@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { fulfillPayment } from "../_fulfillment";
 
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
@@ -26,18 +27,16 @@ export async function POST(req: Request) {
 
   // mock ⇒ موفق
   if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
-    await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
-
-    // ایجاد/تمدید اشتراک یک‌ماهه
-    const now = new Date();
-    const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const fulfilled = await fulfillPayment(supabase, {
+      id: p.id,
       user_id: user.id,
       plan_id: p.plan_id,
-      status: "active",
-      started_at: now.toISOString(),
-      ends_at: ends.toISOString(),
-    }]);
+      status: p.status,
+    });
+
+    if (!fulfilled.ok) {
+      return NextResponse.json({ ok: false, error: fulfilled.error }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   }
@@ -66,28 +65,23 @@ export async function POST(req: Request) {
     const json = await res.json().catch(() => ({} as any));
     const ok = json?.data?.code === 100 || json?.data?.code === 101;
     if (!ok) {
-      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id).neq("status", "paid");
       return NextResponse.json({ ok: false, error: "verify_failed" }, { status: 400 });
     }
 
-    await supabase.from("payments").update({
-      status: "paid",
-      ref_id: String(json?.data?.ref_id ?? ""),
-    }).eq("id", p.id);
+    const fulfilled = await fulfillPayment(
+      supabase,
+      { id: p.id, user_id: user.id, plan_id: p.plan_id, status: p.status },
+      String(json?.data?.ref_id ?? ""),
+    );
 
-    const now = new Date();
-    const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
-      user_id: user.id,
-      plan_id: p.plan_id,
-      status: "active",
-      started_at: now.toISOString(),
-      ends_at: ends.toISOString(),
-    }]);
+    if (!fulfilled.ok) {
+      return NextResponse.json({ ok: false, error: fulfilled.error }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   } catch {
-    await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+    await supabase.from("payments").update({ status: "failed" }).eq("id", p.id).neq("status", "paid");
     return NextResponse.json({ ok: false, error: "verify_catch" }, { status: 500 });
   }
 }
