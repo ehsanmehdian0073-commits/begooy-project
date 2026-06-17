@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireAuthenticatedUserId } from "../../_auth";
 
 export const runtime = "nodejs";
 
@@ -33,14 +34,8 @@ const BodySchema = z
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
-    }
+    const { userId, response } = await requireAuthenticatedUserId();
+    if (response) return response;
 
     // 2) اعتبارسنجی ورودی
     const json = await req.json();
@@ -56,7 +51,7 @@ export async function POST(req: Request) {
     if (selErr) {
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
     }
-    if (bot.user_id && bot.user_id !== userId) {
+    if (bot.user_id !== userId) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
@@ -69,7 +64,7 @@ export async function POST(req: Request) {
       .from("bots")
       .update({
         settings_json: merged,
-        user_id: bot.user_id ?? userId,
+        user_id: userId,
         updated_at: new Date().toISOString(),
       })
       .eq("id", botId)
