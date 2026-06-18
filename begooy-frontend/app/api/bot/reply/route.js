@@ -286,12 +286,10 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, source: "workflow", message_id: id, reply_text: wf, session_id: sessionId });
     }
 
-    // 2) RAG
+    // 2) RAG is disabled here until requests carry a verified tenant/KB scope.
+    // The old global service-role lookup could expose other tenants' KB content.
     let hits = [];
-    let ragMethod = "lexical";
-    const vec = await kbSearchVector(text, 5);
-    if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
-    else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    let ragMethod = "disabled";
 
     // 3) Answer
     const systemPrompt = "تو یک دستیار فارسی هستی که پاسخ‌های کوتاه، دقیق و قابل‌اجرا می‌دهد. اگر اطمینان نداری، شفاف بگو و سوال تکمیلی بپرس.";

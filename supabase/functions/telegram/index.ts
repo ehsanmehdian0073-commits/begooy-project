@@ -99,37 +99,10 @@ async function llmAnswer(question: string, context: string): Promise<string> {
   }
 }
 
-// ---- RAG search via RPC: kb_search(q_embedding, k, min_sim) ----
+// ---- RAG is disabled until Telegram requests carry a verified tenant/KB scope. ----
 async function rag(question: string): Promise<{ answer: string; usedRag: boolean }> {
-  const qEmbedding = await embed(question);
-  if (!qEmbedding.length) {
-    const answer = await llmAnswer(question, "");
-    return { answer: answer || "متوجه نشدم. لطفاً دوباره بپرس 🌱", usedRag: false };
-  }
-
-  const qLiteral = `[${qEmbedding.join(",")}]`;
-
-  const { data, error } = await supabase.rpc("kb_search", {
-    q_embedding: qLiteral,
-    k: 4,
-    min_sim: 0.78,
-  });
-
-  if (error) {
-    console.error("kb_search error:", error);
-    const answer = await llmAnswer(question, "");
-    return { answer: answer || "متوجه نشدم. لطفاً دوباره بپرس 🌱", usedRag: false };
-  }
-
-  const rows = (data ?? []) as Array<{ id: string; content: string; similarity: number }>;
-  if (!rows.length) {
-    const answer = await llmAnswer(question, "");
-    return { answer: answer || "متوجه نشدم. لطفاً دوباره بپرس 🌱", usedRag: false };
-  }
-
-  const context = rows.map((r, i) => `[#${i + 1} | sim=${r.similarity.toFixed(3)}]\n${r.content}`).join("\n\n");
-  const answer = await llmAnswer(question, context);
-  return { answer: answer || "متوجه نشدم. لطفاً دوباره بپرس 🌱", usedRag: true };
+  const answer = await llmAnswer(question, "");
+  return { answer: answer || "متوجه نشدم. لطفاً دوباره بپرس 🌱", usedRag: false };
 }
 
 // ---- Sessions & Conversations ----
@@ -277,7 +250,7 @@ Deno.serve(async (req) => {
         // می‌تونی ذخیره هم بکنی؛ ترجیحاً ساد‌ه نگه می‌داریم
         await sendTelegram(
           chatId,
-          "سلام! 👋\nپیامت رو دریافت می‌کنم. اول از دانش‌نامه (RAG) جواب می‌دم؛ اگر نبود از AI کمک می‌گیرم.",
+          "سلام! 👋\nپیامت رو دریافت می‌کنم و با AI پاسخ می‌دم.",
           message?.message_id
         );
         return;
