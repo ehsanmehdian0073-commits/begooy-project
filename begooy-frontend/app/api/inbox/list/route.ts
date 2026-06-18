@@ -2,6 +2,7 @@ export const runtime = "edge";
 
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "@/lib/auth/requireUser";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -21,6 +22,9 @@ function parseCursor(cur?: string | null): Cursor {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireUser(req);
+    if ("response" in auth) return auth.response;
+
     const { searchParams } = new URL(req.url);
     const limit = Math.min(Number(searchParams.get("limit") ?? 20), 100);
     const platform = searchParams.get("platform") || undefined; // telegram / instagram / ...
