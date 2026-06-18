@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireUser } from "@/lib/auth/requireUser";
 
 const QuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -11,10 +12,9 @@ const QuerySchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const auth = await requireUser(req);
+    if ("response" in auth) return auth.response;
+    const { userId } = auth;
 
     const { searchParams } = req.nextUrl;
     const parsed = QuerySchema.parse({
