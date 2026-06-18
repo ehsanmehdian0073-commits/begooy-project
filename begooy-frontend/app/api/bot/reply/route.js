@@ -16,9 +16,6 @@ const OPENROUTER_TITLE = process.env.OPENROUTER_TITLE || "Begooy Chatbot";
 const AI_MODEL = (process.env.AI_MODEL || "openai/gpt-4o-mini").trim();
 const AI_MAX_TOKENS = Math.max(100, Math.min(Number(process.env.AI_MAX_TOKENS || 350), 800));
 
-const AI_EMBED_MODEL = (process.env.AI_EMBED_MODEL || "embed-multilingual-v3.0").trim();
-const COHERE_API_KEY = process.env.COHERE_API_KEY || "";
-
 /* ---------- Supabase server client ---------- */
 if (!SUPABASE_URL) console.error("Env missing: NEXT_PUBLIC_SUPABASE_URL");
 if (!SRV_KEY) console.error("Env missing: SUPABASE_SERVICE_ROLE_KEY (needed for writes)");
@@ -27,32 +24,10 @@ const supabase = SRV_KEY
   ? createClient(SUPABASE_URL, SRV_KEY, { auth: { persistSession: false } })
   : null;
 
-/* ---------- RAG gating ---------- */
-const RAG_MAX_L2 = Number(process.env.RAG_MAX_L2 || 0.8);
-const RAG_MIN_OVERLAP = Math.max(0, Number(process.env.RAG_MIN_OVERLAP || 1));
-
 /* ---------- Helpers ---------- */
 const snip = (s, n = 220) => (s || "").toString().slice(0, n);
-const cleanQ = (s) => (s || "").toString().replace(/\s+/g, " ").trim();
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function tokenize(str) {
-  if (!str) return [];
-  return str
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .split(/\s+/)
-    .filter((t) => t.length >= 3);
-}
-function keywordOverlap(query, text) {
-  const q = new Set(tokenize(query));
-  if (!q.size) return 0;
-  let count = 0;
-  const toks = tokenize(text);
-  for (const t of toks) if (q.has(t)) count++;
-  return count;
-}
 
 /* ---------- Sessions & Messages ---------- */
 async function ensureSession(sessionId) {
@@ -118,105 +93,6 @@ async function matchWorkflow(botId, text) {
     }
   }
   return null;
-}
-
-/* ---------- RAG (lexical) ---------- */
-async function kbSearchLex(query, limit = 4) {
-  const q = snip(cleanQ(query), 200);
-  if (!q) return [];
-  const { data, error } = await supabase
-    .from("knowledge_base")
-    .select("id, title, content")
-    .or(`title.ilike.%${q}%,content.ilike.%${q}%`)
-    .limit(limit);
-  if (error) return [];
-  return data || [];
-}
-
-/* ---------- Embeddings + Vendor ---------- */
-function modelVendor() {
-  const m = AI_EMBED_MODEL.toLowerCase();
-  if (m.startsWith("embed-")) return { via: "cohere", model: m };
-  if (m.includes("/")) return { via: "openrouter", model: m };
-  return { via: "openrouter", model: `openai/${m}` };
-}
-
-async function embedQuery(input) {
-  const { via, model } = modelVendor();
-  const text = cleanQ(input).slice(0, 4000);
-  if (!text) return null;
-
-  if (via === "cohere") {
-    if (!COHERE_API_KEY) return null;
-    try {
-      const resp = await fetch("https://api.cohere.ai/v1/embed", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${COHERE_API_KEY}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          texts: [text],
-          input_type: "search_query",
-          truncate: "END",
-        }),
-      });
-      const body = await resp.text();
-      if (!resp.ok || body.trim().startsWith("<")) return null;
-      const json = JSON.parse(body);
-      const arr = json?.embeddings;
-      const emb = Array.isArray(arr?.[0]) ? arr[0] : arr?.[0]?.embedding;
-      return emb || null;
-    } catch {
-      return null;
-    }
-  } else {
-    if (!OPENROUTER_API_KEY) return null;
-    try {
-      const resp = await fetch("https://openrouter.ai/api/v1/embeddings", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "HTTP-Referer": OPENROUTER_REFERER,
-          "X-Title": OPENROUTER_TITLE,
-          "User-Agent": "begooy-rag/1.0",
-        },
-        body: JSON.stringify({ model, input: [text] }),
-      });
-      const t = await resp.text();
-      if (!resp.ok || t.trim().startsWith("<")) return null;
-      const j = JSON.parse(t);
-      return j?.data?.[0]?.embedding || null;
-    } catch {
-      return null;
-    }
-  }
-}
-
-/* ---------- RAG (vector with gates) ---------- */
-async function kbSearchVector(q, k = 5) {
-  const qvec = await embedQuery(q);
-  if (!qvec) return { hits: [], method: "lexical" };
-
-  const { data, error } = await supabase.rpc("search_kb_vec", { qvec, k });
-  if (error) return { hits: [], method: "lexical" };
-
-  const hits = data || [];
-  if (!hits.length) return { hits: [], method: "lexical" };
-
-  const top = hits[0];
-  const topDist = typeof top?.distance === "number" ? top.distance : undefined;
-  const overlap = keywordOverlap(q, `${top?.title || ""} ${top?.content || ""}`);
-
-  const passL2 = typeof topDist === "number" ? topDist <= RAG_MAX_L2 : true;
-  const passLex = overlap >= RAG_MIN_OVERLAP;
-
-  if (passL2 && passLex) return { hits, method: "vector" };
-  return { hits: [], method: "lexical" };
 }
 
 function ragComposeAnswer(query, hits) {
