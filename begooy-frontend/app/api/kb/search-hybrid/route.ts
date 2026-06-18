@@ -48,6 +48,19 @@ export async function POST(req: Request) {
     const query = parsed.query;
     const limit = typeof parsed.limit === "number" ? parsed.limit : DEFAULT_LIMIT;
 
+    const { data: kb, error: kbErr } = await sb
+      .from("knowledge_base")
+      .select("id, owner_id")
+      .eq("id", kbId)
+      .single();
+
+    if (kbErr || !kb) {
+      return NextResponse.json({ ok: false, error: "kb_not_found" }, { status: 404 });
+    }
+    if (kb.owner_id !== userId) {
+      return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    }
+
     // نرمال‌سازی وزن‌ها (فارغ از اینکه 0..1 یا 0..10 داده‌شود)
     const sw = (typeof parsed.semWeight === "number" ? parsed.semWeight : DEFAULT_SEM_WEIGHT);
     const lw = (typeof parsed.lexWeight === "number" ? parsed.lexWeight : DEFAULT_LEX_WEIGHT);
