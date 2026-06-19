@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
+import { requireVerifiedUserId } from "@/lib/server-auth";
 
 export const runtime = "nodejs";
 
@@ -12,14 +13,9 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    // 1) هدر هویت کاربر
-    const userId = req.headers.get("x-user-id");
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, error: "missing_x_user_id_header" },
-        { status: 401 }
-      );
-    }
+    const auth = await requireVerifiedUserId();
+    if (auth.response) return auth.response;
+    const { userId } = auth;
 
     // 2) اعتبارسنجی ورودی
     const json = await req.json();

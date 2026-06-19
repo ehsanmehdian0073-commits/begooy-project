@@ -1,6 +1,7 @@
 // app/api/billing/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server"; // ⬅️ تغییر مهم
+import { isMockBillingAllowed } from "@/utils/billing/mock";
 
 // ─────────────────────────────── Helpers
 function extractLimits(p: any) {
@@ -125,16 +126,19 @@ export async function POST(req: Request) {
   const amountRial = Math.max(1000, Math.round(amountToman * 10));
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
   const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
-  const APP_BASE_URL = process.env.APP_BASE_URL?.trim() || "http://localhost:3000";
-  const hasGateway = Boolean(MERCHANT_ID && APP_BASE_URL);
+  const APP_BASE_URL =
+    process.env.APP_BASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_BASE_URL?.trim() ||
+    new URL(req.url).origin;
+  const hasGateway = Boolean(MERCHANT_ID);
   const base = IS_SANDBOX
     ? "https://sandbox.zarinpal.com/pg/v4"
     : "https://api.zarinpal.com/pg/v4";
 
-  // 3) مقادیر پیش‌فرض (Mock)
-  let gatewayMode: "mock" | "zarinpal" = "mock";
-  let authority = `mock-${Date.now()}`;
-let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  let gatewayMode: "mock" | "zarinpal";
+  let authority: string;
+  let redirectUrl: string;
+
   // 4) اگر درگاه آماده است
   if (hasGateway) {
     try {
@@ -161,10 +165,28 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
         gatewayMode = "zarinpal";
       } else {
         console.error("[zarinpal.request.error]", json);
+        if (!isMockBillingAllowed()) {
+          return NextResponse.json({ ok: false, error: "gateway_request_failed" }, { status: 502 });
+        }
+        gatewayMode = "mock";
+        authority = `mock-${Date.now()}`;
+        redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
       }
     } catch (e) {
       console.error("[zarinpal.request.catch]", e);
+      if (!isMockBillingAllowed()) {
+        return NextResponse.json({ ok: false, error: "gateway_request_failed" }, { status: 502 });
+      }
+      gatewayMode = "mock";
+      authority = `mock-${Date.now()}`;
+      redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
     }
+  } else if (isMockBillingAllowed()) {
+    gatewayMode = "mock";
+    authority = `mock-${Date.now()}`;
+    redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  } else {
+    return NextResponse.json({ ok: false, error: "gateway_unconfigured" }, { status: 503 });
   }
 
   // 5) درج رکورد pending در payments
@@ -182,6 +204,7 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
 
   if (insErr) {
     console.error("[payments.insert.error]", insErr);
+    return NextResponse.json({ ok: false, error: "payment_init_failed" }, { status: 500 });
   }
 
   return NextResponse.json({

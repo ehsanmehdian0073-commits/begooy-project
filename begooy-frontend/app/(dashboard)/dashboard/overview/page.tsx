@@ -84,7 +84,7 @@ async function getUserIdUnified(): Promise<string | null> {
 async function postJson<T = any>(url: string, body: any, userId: string) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   let json: any = null;
@@ -103,7 +103,7 @@ async function postJson<T = any>(url: string, body: any, userId: string) {
 async function ensureBotOnServer(userId: string, payload?: Record<string, any>): Promise<string> {
   const res = await fetch("/api/bots/ensure", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload ?? {}),
   });
   const json = await res.json();
