@@ -60,11 +60,11 @@ interface WizardState {
   name: string; setName: (v: string) => void;
   avatarUrl?: string; setAvatarUrl: (v?: string) => void;
 
-  channels: string[]; setChannels: (v: string[]) => void;
-  kb: KBRef[]; setKb: (v: KBRef[]) => void;
+  channels: string[]; setChannels: React.Dispatch<React.SetStateAction<string[]>>;
+  kb: KBRef[]; setKb: React.Dispatch<React.SetStateAction<KBRef[]>>;
 
   tone: "retail" | "support" | "edu"; setTone: (v: "retail"|"support"|"edu") => void;
-  vars: Record<string, string>; setVars: (fn: (prev: Record<string,string>) => Record<string,string>) => void;
+  vars: Record<string, string>; setVars: React.Dispatch<React.SetStateAction<Record<string,string>>>;
 
   userId: string | null; setUserId: (v: string | null) => void;
   botId: string; setBotId: (v: string) => void;
@@ -104,7 +104,7 @@ async function getUserIdUnified(): Promise<string|null> {
 async function postJson<T = any>(url: string, body: any, userId: string) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   let json: any = null;
@@ -119,7 +119,7 @@ async function postJson<T = any>(url: string, body: any, userId: string) {
 async function ensureBotOnServer(userId: string, payload?: Record<string, any>): Promise<string> {
   const res = await fetch("/api/bots/ensure", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload ?? {}),
   });
   const json = await res.json();

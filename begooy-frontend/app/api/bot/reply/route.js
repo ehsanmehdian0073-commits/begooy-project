@@ -18,6 +18,9 @@ const AI_MAX_TOKENS = Math.max(100, Math.min(Number(process.env.AI_MAX_TOKENS ||
 
 const AI_EMBED_MODEL = (process.env.AI_EMBED_MODEL || "embed-multilingual-v3.0").trim();
 const COHERE_API_KEY = process.env.COHERE_API_KEY || "";
+const ALLOW_UNSCOPED_PUBLIC_BOT_RAG =
+  process.env.ALLOW_UNSCOPED_PUBLIC_BOT_RAG === "true" &&
+  process.env.NODE_ENV !== "production";
 
 /* ---------- Supabase server client ---------- */
 if (!SUPABASE_URL) console.error("Env missing: NEXT_PUBLIC_SUPABASE_URL");
@@ -289,9 +292,13 @@ export async function POST(req) {
     // 2) RAG
     let hits = [];
     let ragMethod = "lexical";
-    const vec = await kbSearchVector(text, 5);
-    if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
-    else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    if (ALLOW_UNSCOPED_PUBLIC_BOT_RAG) {
+      const vec = await kbSearchVector(text, 5);
+      if (vec?.hits?.length) { hits = vec.hits; ragMethod = "vector"; }
+      else { hits = await kbSearchLex(text, 4); ragMethod = "lexical"; }
+    } else {
+      ragMethod = "disabled";
+    }
 
     // 3) Answer
     const systemPrompt = "تو یک دستیار فارسی هستی که پاسخ‌های کوتاه، دقیق و قابل‌اجرا می‌دهد. اگر اطمینان نداری، شفاف بگو و سوال تکمیلی بپرس.";

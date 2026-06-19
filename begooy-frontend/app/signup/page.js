@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import AuthLayout from "@/components/auth/AuthLayout";
 
-export default function SignupPage() {
+function SignupForm() {
   const supabase = createClient();
   const router = useRouter();
   const search = useSearchParams();
@@ -163,5 +163,13 @@ export default function SignupPage() {
         </div>
       </form>
     </AuthLayout>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
   );
 }

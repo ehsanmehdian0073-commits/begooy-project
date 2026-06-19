@@ -162,11 +162,11 @@ function studioToRuntime(st: {
   name: string;
   nodes: StudioNode[];
   edges: StudioEdge[];
-}: Workflow) {
+}): Workflow {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
-    const rt: BotNode = {
+    const rt: any = {
       id: n.id,
       workflow_id: st.id,
       kind:

@@ -1,6 +1,7 @@
 // app/api/billing/verify/route.ts
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { isMockBillingAllowed } from "@/utils/billing/mock";
 
 type VerifyResult =
   | { ok: true; cardHash?: string; refId?: string }
@@ -41,6 +42,38 @@ async function verifyWithZarinpal(authority: string, amountRial: number): Promis
   }
 }
 
+async function ensureActiveSubscription(supabase: any, userId: string, planId: string) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  const { data: existing, error: existingErr } = await supabase
+    .from("subscriptions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("plan_id", planId)
+    .eq("status", "active")
+    .gte("ends_at", nowIso)
+    .maybeSingle();
+
+  if (existingErr) return existingErr;
+  if (existing) return null;
+
+  const ends = new Date(now);
+  ends.setMonth(ends.getMonth() + 1);
+
+  const { error } = await supabase.from("subscriptions").insert([
+    {
+      user_id: userId,
+      plan_id: planId,
+      status: "active",
+      started_at: nowIso,
+      ends_at: ends.toISOString(),
+    },
+  ]);
+
+  return error ?? null;
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -69,6 +102,10 @@ export async function GET(req: Request) {
 
     // اگر قبلاً paid شده، دوباره کاری نکن
     if (payRow.status === "paid") {
+      const subErr = await ensureActiveSubscription(supabase, payRow.user_id, effectivePlan);
+      if (subErr) {
+        return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_insert_failed`, req));
+      }
       return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
     }
 
@@ -79,7 +116,13 @@ export async function GET(req: Request) {
 
     // mock یا واقعی
     let verify: VerifyResult = { ok: true };
-    if (!authority.startsWith("mock-")) {
+    const isMockPayment = authority.startsWith("mock-") || payRow.gateway === "mock";
+    if (isMockPayment) {
+      if (!isMockBillingAllowed()) {
+        await supabase.from("payments").update({ status: "failed" }).eq("id", payRow.id);
+        return NextResponse.redirect(abs(`${returnTo}&paid=0&err=mock_disabled`, req));
+      }
+    } else {
       const amountRial = Number(payRow.amount_rial ?? 0);
       verify = await verifyWithZarinpal(authority, amountRial);
     }
@@ -90,25 +133,23 @@ export async function GET(req: Request) {
     }
 
     // پرداخت موفق
-    await supabase
+    const { data: updatedPayment, error: updateErr } = await supabase
       .from("payments")
       .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
-      .eq("id", payRow.id);
+      .eq("id", payRow.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
 
-    // ایجاد/تمدید اشتراک یک‌ماهه ساده
-    const now = new Date();
-    const ends = new Date(now);
-    ends.setMonth(ends.getMonth() + 1);
+    if (updateErr || !updatedPayment) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
 
-    await supabase.from("subscriptions").insert([
-      {
-        user_id: payRow.user_id,
-        plan_id: effectivePlan,
-        status: "active",
-        started_at: now.toISOString(),
-        ends_at: ends.toISOString(),
-      },
-    ]);
+    const subErr = await ensureActiveSubscription(supabase, payRow.user_id, effectivePlan);
+
+    if (subErr) {
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_insert_failed`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {

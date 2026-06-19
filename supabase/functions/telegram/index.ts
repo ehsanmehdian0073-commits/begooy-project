@@ -17,6 +17,9 @@ const OR_CHAT_MODEL = Deno.env.get("OR_CHAT_MODEL") ?? "openai/gpt-4o-mini";
 const OR_EMBED_MODEL = Deno.env.get("OR_EMBED_MODEL") ?? "openai/text-embedding-3-small";
 const OR_HTTP_REFERER = Deno.env.get("OR_HTTP_REFERER") ?? "";
 const OR_APP_TITLE = Deno.env.get("OR_APP_TITLE") ?? "Begooy Telegram Bot";
+const ALLOW_UNSCOPED_PUBLIC_BOT_RAG =
+  Deno.env.get("ALLOW_UNSCOPED_PUBLIC_BOT_RAG") === "true" &&
+  Deno.env.get("ENVIRONMENT") !== "production";
 
 // ---- Clients & Const ----
 const supabase = createClient(SB_URL, SB_SERVICE_ROLE);
@@ -101,6 +104,11 @@ async function llmAnswer(question: string, context: string): Promise<string> {
 
 // ---- RAG search via RPC: kb_search(q_embedding, k, min_sim) ----
 async function rag(question: string): Promise<{ answer: string; usedRag: boolean }> {
+  if (!ALLOW_UNSCOPED_PUBLIC_BOT_RAG) {
+    const answer = await llmAnswer(question, "");
+    return { answer: answer || "متوجه نشدم. لطفاً دوباره بپرس 🌱", usedRag: false };
+  }
+
   const qEmbedding = await embed(question);
   if (!qEmbedding.length) {
     const answer = await llmAnswer(question, "");

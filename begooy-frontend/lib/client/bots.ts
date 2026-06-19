@@ -1,6 +1,6 @@
 // lib/client/bots.ts
 // Helper funcs for calling /api/bots/* from the browser UI.
-// NOTE: باید userId واقعی را به این توابع بدهی (مثلاً از supabase.auth.getUser()).
+// The server derives identity from the Supabase session cookie.
 
 type SaveSettingsArgs = {
   botId: string;
@@ -19,7 +19,6 @@ export async function saveBotSettings({ botId, userId, settings }: SaveSettingsA
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-user-id": userId,
     },
     body: JSON.stringify({ botId, settings }),
   });
@@ -33,7 +32,6 @@ export async function applyBotPrompt({ botId, userId, prompt }: ApplyPromptArgs)
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-user-id": userId,
     },
     body: JSON.stringify({ botId, prompt }),
   });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
+import { isMockBillingAllowed } from "@/utils/billing/mock";
 
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
@@ -24,8 +25,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, paid: true, already: true });
   }
 
-  // mock ⇒ موفق
+  // mock ⇒ فقط در محیط غیرپروداکشن و با فلگ صریح
   if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
+    if (!isMockBillingAllowed()) {
+      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+      return NextResponse.json({ ok: false, error: "mock_disabled" }, { status: 400 });
+    }
+
     await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
 
     // ایجاد/تمدید اشتراک یک‌ماهه

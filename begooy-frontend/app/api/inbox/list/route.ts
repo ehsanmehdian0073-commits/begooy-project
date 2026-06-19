@@ -2,6 +2,7 @@ export const runtime = "edge";
 
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireVerifiedUserId } from "@/lib/server-auth";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -21,6 +22,10 @@ function parseCursor(cur?: string | null): Cursor {
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireVerifiedUserId();
+    if (auth.response) return auth.response;
+    const { userId } = auth;
+
     const { searchParams } = new URL(req.url);
     const limit = Math.min(Number(searchParams.get("limit") ?? 20), 100);
     const platform = searchParams.get("platform") || undefined; // telegram / instagram / ...
@@ -31,6 +36,7 @@ export async function GET(req: NextRequest) {
     let query = sb
       .from("conversations")
       .select("id, session_id, platform, message_text, is_bot_response, created_at")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false });
 
