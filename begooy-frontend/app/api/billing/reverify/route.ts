@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClientForAction } from "@/utils/supabase/server";
 
+function allowMockBilling() {
+  return process.env.ALLOW_MOCK_BILLING === "true" && process.env.NODE_ENV !== "production";
+}
+
 /** فقط برای پرداخت‌های Zarinpal یا mock که هنوز pending هستند */
 export async function POST(req: Request) {
   const supabase = await createClientForAction();
@@ -24,27 +28,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, paid: true, already: true });
   }
 
-  // mock ⇒ موفق
+  // mock ⇒ موفق فقط با opt-in غیر production
   if ((p.authority || "").startsWith("mock-") || p.gateway === "mock") {
-    await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+    if (!allowMockBilling()) {
+      await supabase.from("payments").update({ status: "failed" }).eq("id", p.id);
+      return NextResponse.json({ ok: false, error: "MOCK_BILLING_DISABLED" }, { status: 400 });
+    }
 
     // ایجاد/تمدید اشتراک یک‌ماهه
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { error: subErr } = await supabase.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
       started_at: now.toISOString(),
       ends_at: ends.toISOString(),
     }]);
+    if (subErr) {
+      console.error("[subscriptions.insert.error]", subErr);
+      return NextResponse.json({ ok: false, error: "subscription_failed" }, { status: 500 });
+    }
+
+    const { error: payErr } = await supabase.from("payments").update({ status: "paid" }).eq("id", p.id);
+    if (payErr) {
+      console.error("[payments.paid_update.error]", payErr);
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   }
 
   // واقعی ⇒ درخواست verify به زرین‌پال
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
-  const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
+  const IS_SANDBOX =
+    process.env.ZARINPAL_SANDBOX === undefined
+      ? process.env.NODE_ENV !== "production"
+      : process.env.ZARINPAL_SANDBOX === "true";
   if (!MERCHANT_ID) return NextResponse.json({ ok: false, error: "MISSING_MERCHANT_ID" }, { status: 500 });
 
   const base = IS_SANDBOX
@@ -70,20 +90,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "verify_failed" }, { status: 400 });
     }
 
-    await supabase.from("payments").update({
-      status: "paid",
-      ref_id: String(json?.data?.ref_id ?? ""),
-    }).eq("id", p.id);
-
     const now = new Date();
     const ends = new Date(now); ends.setMonth(ends.getMonth() + 1);
-    await supabase.from("subscriptions").insert([{
+    const { error: subErr } = await supabase.from("subscriptions").insert([{
       user_id: user.id,
       plan_id: p.plan_id,
       status: "active",
       started_at: now.toISOString(),
       ends_at: ends.toISOString(),
     }]);
+    if (subErr) {
+      console.error("[subscriptions.insert.error]", subErr);
+      return NextResponse.json({ ok: false, error: "subscription_failed" }, { status: 500 });
+    }
+
+    const { error: payErr } = await supabase.from("payments").update({
+      status: "paid",
+      ref_id: String(json?.data?.ref_id ?? ""),
+    }).eq("id", p.id);
+    if (payErr) {
+      console.error("[payments.paid_update.error]", payErr);
+      return NextResponse.json({ ok: false, error: "payment_update_failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, paid: true, plan: p.plan_id });
   } catch {
