@@ -19,7 +19,7 @@ export type EventPayload = {
   ctx?: Record<string, any>; // دادهٔ کمکی در طول اجرای فلو
 };
 
-export type NodeKind = "trigger" | "condition" | "action";
+export type NodeKind = "trigger" | "condition" | "action" | "control";
 
 export type NodeType =
   // Triggers
@@ -35,7 +35,9 @@ export type NodeType =
   | "delay_ms"
   | "call_webhook"
   | "set_var"
-  | "kb_answer";
+  | "kb_answer"
+  // Controls
+  | "branch";
 
 export type BotNode = {
   id: string;
@@ -65,7 +67,7 @@ export type Workflow = {
 
 // نتیجه اجرای یک نود
 export type StepResult =
-  | { outcome: "continue"; nextLabels?: string[] }   // ادامه به یال‌هایی با label خاص
+  | { outcome: "continue"; nextLabels?: string[]; nextId?: string } // ادامه به یال‌ها یا نود خاص
   | { outcome: "halt" }                              // توقف
   | { outcome: "error"; message: string };
 

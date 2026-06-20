@@ -124,17 +124,35 @@ export async function POST(req: Request) {
   const amountToman = Number(planRow.price ?? 0);
   const amountRial = Math.max(1000, Math.round(amountToman * 10));
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
-  const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
-  const APP_BASE_URL = process.env.APP_BASE_URL?.trim() || "http://localhost:3000";
+  const IS_SANDBOX =
+    process.env.ZARINPAL_SANDBOX === undefined
+      ? process.env.NODE_ENV !== "production"
+      : process.env.ZARINPAL_SANDBOX === "true";
+  const APP_BASE_URL =
+    process.env.APP_BASE_URL?.trim() ||
+    (process.env.NODE_ENV !== "production" ? "http://localhost:3000" : "");
   const hasGateway = Boolean(MERCHANT_ID && APP_BASE_URL);
+  const allowMockBilling =
+    process.env.ALLOW_MOCK_BILLING === "true" && process.env.NODE_ENV !== "production";
   const base = IS_SANDBOX
     ? "https://sandbox.zarinpal.com/pg/v4"
     : "https://api.zarinpal.com/pg/v4";
 
-  // 3) مقادیر پیش‌فرض (Mock)
-  let gatewayMode: "mock" | "zarinpal" = "mock";
-  let authority = `mock-${Date.now()}`;
-let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  // 3) مقادیر درگاه؛ mock فقط با opt-in غیر production
+  let gatewayMode: "mock" | "zarinpal" = "zarinpal";
+  let authority = "";
+  let redirectUrl = "";
+
+  if (!hasGateway && !allowMockBilling) {
+    return NextResponse.json({ ok: false, error: "payment_gateway_unavailable" }, { status: 503 });
+  }
+
+  if (!hasGateway && allowMockBilling) {
+    gatewayMode = "mock";
+    authority = `mock-${Date.now()}`;
+    redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Authority=${authority}&Status=OK`;
+  }
+
   // 4) اگر درگاه آماده است
   if (hasGateway) {
     try {
@@ -167,6 +185,10 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
     }
   }
 
+  if (!authority || !redirectUrl) {
+    return NextResponse.json({ ok: false, error: "payment_request_failed" }, { status: 502 });
+  }
+
   // 5) درج رکورد pending در payments
   const { error: insErr } = await supabase
     .from("payments")
@@ -182,6 +204,7 @@ let redirectUrl = `/api/billing/verify?planId=${encodeURIComponent(planId)}&Auth
 
   if (insErr) {
     console.error("[payments.insert.error]", insErr);
+    return NextResponse.json({ ok: false, error: "payment_record_failed" }, { status: 500 });
   }
 
   return NextResponse.json({

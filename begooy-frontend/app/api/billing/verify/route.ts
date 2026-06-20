@@ -12,9 +12,16 @@ function abs(path: string, req: Request) {
   return new URL(path, origin).toString();
 }
 
+function allowMockBilling() {
+  return process.env.ALLOW_MOCK_BILLING === "true" && process.env.NODE_ENV !== "production";
+}
+
 async function verifyWithZarinpal(authority: string, amountRial: number): Promise<VerifyResult> {
   const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID?.trim();
-  const IS_SANDBOX = String(process.env.ZARINPAL_SANDBOX ?? "true") === "true";
+  const IS_SANDBOX =
+    process.env.ZARINPAL_SANDBOX === undefined
+      ? process.env.NODE_ENV !== "production"
+      : process.env.ZARINPAL_SANDBOX === "true";
   if (!MERCHANT_ID) return { ok: false, error: "MISSING_MERCHANT_ID" };
 
   const base = IS_SANDBOX
@@ -79,7 +86,11 @@ export async function GET(req: Request) {
 
     // mock یا واقعی
     let verify: VerifyResult = { ok: true };
-    if (!authority.startsWith("mock-")) {
+    if (authority.startsWith("mock-")) {
+      if (!allowMockBilling()) {
+        verify = { ok: false, error: "MOCK_BILLING_DISABLED" };
+      }
+    } else {
       const amountRial = Number(payRow.amount_rial ?? 0);
       verify = await verifyWithZarinpal(authority, amountRial);
     }
@@ -89,18 +100,12 @@ export async function GET(req: Request) {
       return NextResponse.redirect(abs(`${returnTo}&paid=0&err=${encodeURIComponent((verify as any).error)}`, req));
     }
 
-    // پرداخت موفق
-    await supabase
-      .from("payments")
-      .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
-      .eq("id", payRow.id);
-
     // ایجاد/تمدید اشتراک یک‌ماهه ساده
     const now = new Date();
     const ends = new Date(now);
     ends.setMonth(ends.getMonth() + 1);
 
-    await supabase.from("subscriptions").insert([
+    const { error: subErr } = await supabase.from("subscriptions").insert([
       {
         user_id: payRow.user_id,
         plan_id: effectivePlan,
@@ -109,6 +114,20 @@ export async function GET(req: Request) {
         ends_at: ends.toISOString(),
       },
     ]);
+    if (subErr) {
+      console.error("[subscriptions.insert.error]", subErr);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=subscription_failed`, req));
+    }
+
+    const { error: payUpdateErr } = await supabase
+      .from("payments")
+      .update({ status: "paid", ref_id: "refId" in verify ? verify.refId : null })
+      .eq("id", payRow.id);
+
+    if (payUpdateErr) {
+      console.error("[payments.paid_update.error]", payUpdateErr);
+      return NextResponse.redirect(abs(`${returnTo}&paid=0&err=payment_update_failed`, req));
+    }
 
     return NextResponse.redirect(abs(`${returnTo}&paid=1`, req));
   } catch (err: any) {

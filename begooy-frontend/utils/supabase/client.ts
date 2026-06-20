@@ -7,8 +7,9 @@ type CookieOptions = {
   domain?: string;
   maxAge?: number;
   expires?: Date;
-  sameSite?: "lax" | "strict" | "none";
+  sameSite?: "lax" | "strict" | "none" | boolean;
   secure?: boolean;
+  [key: string]: unknown;
 };
 
 function writeCookie(name: string, value: string, options: CookieOptions = {}) {
@@ -18,7 +19,7 @@ function writeCookie(name: string, value: string, options: CookieOptions = {}) {
   if (options.expires) cookie += `; Expires=${options.expires.toUTCString()}`;
   cookie += `; Path=${options.path ?? "/"}`;
   if (options.domain) cookie += `; Domain=${options.domain}`;
-  if (options.sameSite) {
+  if (typeof options.sameSite === "string") {
     const s = options.sameSite === "none" ? "None" : options.sameSite[0].toUpperCase() + options.sameSite.slice(1);
     cookie += `; SameSite=${s}`;
   }
@@ -61,17 +62,6 @@ export function createClient() {
         },
         setAll(cookies: Array<{ name: string; value: string; options?: CookieOptions }>) {
           cookies.forEach(({ name, value, options }) => writeCookie(name, value, options));
-        },
-
-        // روش جایگزین (قدیمی‌تر)؛ بودنِ این‌ها هم مشکلی ندارد
-        get(name: string) {
-          return readCookie(name);
-        },
-        set(name: string, value: string, options?: CookieOptions) {
-          writeCookie(name, value, options);
-        },
-        remove(name: string, options?: CookieOptions) {
-          deleteCookie(name, options);
         },
       },
     }

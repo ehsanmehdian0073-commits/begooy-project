@@ -1,6 +1,7 @@
 // app/api/kb/ask/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { requireAuthenticatedUserId } from "@/app/api/_utils/auth";
 
 /** ---------- Config ---------- */
 const BASE =
@@ -98,11 +99,8 @@ export async function POST(req: NextRequest) {
   const openai = hasApiKey ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY! }) : null;
 
   try {
-    // Owner required
-    const userId = (req.headers.get("x-user-id") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "missing_user_id" }, { status: 401 });
-    }
+    const auth = await requireAuthenticatedUserId();
+    if (auth.response) return auth.response;
 
     // Body
     const body = await req.json();
@@ -138,10 +136,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const passHeaders: HeadersInit = {
+    const passHeaders: Record<string, string> = {
       "Content-Type": "application/json",
-      "x-user-id": userId,
     };
+    const cookie = req.headers.get("cookie");
+    if (cookie) passHeaders.cookie = cookie;
 
     // ---------- Retrieval
     let mode: "hybrid" | "semantic" | "no-context" | "dry-run" = "hybrid";
