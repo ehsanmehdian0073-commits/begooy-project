@@ -63,17 +63,6 @@ export function createClient() {
         setAll(cookies: Array<{ name: string; value: string; options?: CookieOptions }>) {
           cookies.forEach(({ name, value, options }) => writeCookie(name, value, options));
         },
-
-        // روش جایگزین (قدیمی‌تر)؛ بودنِ این‌ها هم مشکلی ندارد
-        get(name: string) {
-          return readCookie(name);
-        },
-        set(name: string, value: string, options?: CookieOptions) {
-          writeCookie(name, value, options);
-        },
-        remove(name: string, options?: CookieOptions) {
-          deleteCookie(name, options);
-        },
       },
     }
   );
