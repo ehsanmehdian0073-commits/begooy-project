@@ -2,11 +2,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { scanUrl } from "@/lib/magic";
+import { createClientForAction } from "@/utils/supabase/server";
 
 export const dynamic = "force-dynamic"; // برای اجبار اجرای سروری تازه
-
-// در صورت نیاز: اجرای Node.js به‌جای edge (اگر scanUrl به Node API نیاز دارد)
-// export const runtime = "nodejs";
+export const runtime = "nodejs";
 
 const BodySchema = z.object({
   url: z.string().min(1, "url-required"),
@@ -38,6 +37,12 @@ export async function OPTIONS() {
 
 export async function POST(req: Request) {
   try {
+    const supabase = await createClientForAction();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+
     // 1) Parse + validate
     const json = await req.json();
     const { url } = BodySchema.parse(json);
@@ -60,9 +65,15 @@ export async function POST(req: Request) {
   } catch (e: any) {
     // کد خطاهای قابل تشخیص
     const msg = String(e?.message || "");
-    if (msg === "invalid-url" || msg === "invalid-protocol") {
+    if (msg === "invalid-url" || msg === "invalid-protocol" || msg === "invalid_url") {
       return NextResponse.json(
         { ok: false, error: "invalid_url" },
+        { status: 400 }
+      );
+    }
+    if (msg === "unsafe_url" || msg === "unresolvable_url") {
+      return NextResponse.json(
+        { ok: false, error: "unsafe_url" },
         { status: 400 }
       );
     }
