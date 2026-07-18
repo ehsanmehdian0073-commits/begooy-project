@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import crypto from "crypto";
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import { supabaseAdmin as sb } from "@/lib/supabaseAdmin";
 import { chunkText } from "@/lib/kb/chunker";
 import { embedBatchWithDims } from "@/lib/kb/embed";
@@ -16,6 +18,37 @@ const FETCH_TIMEOUT_MS = 15000;
 const ROBOTS_TIMEOUT_MS = 4000;
 const MAX_PAGES_HARD = 30;
 const MAX_HTML_LEN = 800_000;
+const MAX_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const blockedAddresses = new BlockList();
+
+[
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4],
+].forEach(([network, prefix]) => blockedAddresses.addSubnet(network as string, prefix as number, "ipv4"));
+
+[
+  ["::", 128],
+  ["::1", 128],
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001:db8::", 32],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+].forEach(([network, prefix]) => blockedAddresses.addSubnet(network as string, prefix as number, "ipv6"));
 
 /* ---------------- Rate Limit (Dev) ---------------- */
 const RL = new Map<string, number[]>();
@@ -58,11 +91,73 @@ function parseTitle(html: string): string | null {
   const m = html.match(/<title[^>]*>([^<]*)<\/title>/i);
   return m?.[1]?.trim() || null;
 }
-async function fetchWithTimeout(url: string, ms = FETCH_TIMEOUT_MS) {
+
+function parsePublicHttpUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("invalid_url");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error("invalid_url");
+  }
+  return url;
+}
+
+function isBlockedAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 4) return blockedAddresses.check(address, "ipv4");
+  if (family === 6) return blockedAddresses.check(address, "ipv6");
+  return true;
+}
+
+async function assertPublicTarget(url: URL): Promise<void> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost")) {
+    throw new Error("unsafe_url");
+  }
+
+  if (isIP(hostname)) {
+    if (isBlockedAddress(hostname)) throw new Error("unsafe_url");
+    return;
+  }
+
+  let addresses: Array<{ address: string; family: number }>;
+  try {
+    addresses = await lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new Error("unresolvable_url");
+  }
+  if (!addresses.length || addresses.some(({ address }) => isBlockedAddress(address))) {
+    throw new Error("unsafe_url");
+  }
+}
+
+async function fetchOnce(url: URL, ms: number): Promise<Response> {
   const ctrl = new AbortController();
   const id = setTimeout(() => ctrl.abort(), ms);
-  try { return await fetch(url, { signal: ctrl.signal }); }
+  try { return await fetch(url, { signal: ctrl.signal, redirect: "manual" }); }
   finally { clearTimeout(id); }
+}
+
+async function fetchWithTimeout(url: string, ms = FETCH_TIMEOUT_MS) {
+  let current = parsePublicHttpUrl(url);
+
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    await assertPublicTarget(current);
+    const response = await fetchOnce(current, ms);
+    if (!REDIRECT_STATUSES.has(response.status)) {
+      return { response, finalUrl: current };
+    }
+
+    const location = response.headers.get("location");
+    if (!location) return { response, finalUrl: current };
+    if (redirects === MAX_REDIRECTS) throw new Error("too_many_redirects");
+    current = parsePublicHttpUrl(new URL(location, current).toString());
+  }
+
+  throw new Error("too_many_redirects");
 }
 
 /** فایل/ایست‌ها که نباید دنبال شوند */
@@ -112,7 +207,7 @@ async function allowedByRobotsTxt(target: URL): Promise<boolean> {
     const origin = target.origin;
     if (!ROBOTS_CACHE.has(origin)) {
       const robotsUrl = new URL("/robots.txt", origin).toString();
-      const res = await fetchWithTimeout(robotsUrl, ROBOTS_TIMEOUT_MS);
+      const { response: res } = await fetchWithTimeout(robotsUrl, ROBOTS_TIMEOUT_MS);
       if (!res?.ok) {
         ROBOTS_CACHE.set(origin, []);
       } else {
@@ -216,7 +311,7 @@ export async function POST(req: NextRequest) {
 
         if (!(await allowedByRobotsTxt(u))) continue;
 
-        const res = await fetchWithTimeout(key);
+        const { response: res, finalUrl } = await fetchWithTimeout(key);
         if (!res?.ok) continue;
 
         const ct = res.headers.get("content-type") || "";
@@ -225,14 +320,16 @@ export async function POST(req: NextRequest) {
         let html = await res.text();
         if (html.length > MAX_HTML_LEN) html = html.slice(0, MAX_HTML_LEN);
 
-        const pageTitle = parseTitle(html) || u.hostname;
+        const pageTitle = parseTitle(html) || finalUrl.hostname;
         const text = stripHtml(html);
         if (!text) continue;
 
-        pages.push({ url: key, html, text, title: pageTitle });
+        const finalKey = finalUrl.toString();
+        visited.add(finalKey);
+        pages.push({ url: finalKey, html, text, title: pageTitle });
 
         if (level < depth) {
-          const outs = extractLinks(html, u)
+          const outs = extractLinks(html, finalUrl)
             .map(h => { try { return new URL(h); } catch { return null as any; } })
             .filter((x: URL | null): x is URL => !!x)
             .filter(x => !sameHost || x.host === start.host)
@@ -377,6 +474,9 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     if (e?.issues) {
       return NextResponse.json({ ok: false, error: "validation_error", details: e.issues }, { status: 400 });
+    }
+    if (["invalid_url", "unsafe_url", "unresolvable_url"].includes(String(e?.message))) {
+      return NextResponse.json({ ok: false, error: "unsafe_url" }, { status: 400 });
     }
     return NextResponse.json({ ok: false, error: e?.message ?? "internal_error" }, { status: 500 });
   }
