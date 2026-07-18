@@ -154,6 +154,7 @@ async function fetchWithTimeout(url: string, ms = FETCH_TIMEOUT_MS) {
     const location = response.headers.get("location");
     if (!location) return { response, finalUrl: current };
     if (redirects === MAX_REDIRECTS) throw new Error("too_many_redirects");
+    await response.body?.cancel();
     current = parsePublicHttpUrl(new URL(location, current).toString());
   }
 
