@@ -14,6 +14,7 @@ export const runtime = "nodejs";            // need Node APIs (crypto, fetch)
 // ENV
 const TG_TOKEN = process.env.TG_BOT_TOKEN!;
 const WEBHOOK_SECRET = process.env.TG_WEBHOOK_SECRET!;
+const TG_WORKFLOW_ID = process.env.TG_WORKFLOW_ID?.trim() || "";
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -241,22 +242,27 @@ export async function POST(req: NextRequest) {
     };
 
     // 4) Automation engine (shielded)
-    try {
-      await processAutomation(
-        {
-          event: "message.received",
-          channel: "telegram",
-          text: text || "",
-          session_id: session.id,
-          external_ref: chatId,
-          profile_name: profileName,
-        },
-        deps
-      );
-    } catch (e) {
-      console.error("processAutomation failed:", e);
-      // Optional fallback reply (commented):
-      // await deps.sendOnChannel({ channel: "telegram", toExternalRef: chatId, session_id: session.id, text: "پیام دریافت شد ✅" });
+    if (!TG_WORKFLOW_ID) {
+      console.warn("TG_WORKFLOW_ID is not configured; Telegram automation skipped");
+    } else {
+      try {
+        await processAutomation(
+          TG_WORKFLOW_ID,
+          {
+            event: "message.received",
+            channel: "telegram",
+            text: text || "",
+            session_id: session.id,
+            external_ref: chatId,
+            profile_name: profileName,
+          },
+          deps
+        );
+      } catch (e) {
+        console.error("processAutomation failed:", e);
+        // Optional fallback reply (commented):
+        // await deps.sendOnChannel({ channel: "telegram", toExternalRef: chatId, session_id: session.id, text: "پیام دریافت شد ✅" });
+      }
     }
 
     // Always ack fast
