@@ -45,10 +45,11 @@ async function log(
 }
 
 /* ---------------------- Loader (Legacy: bot_* tables) --------------------- */
-async function loadLegacyWorkflows(): Promise<Workflow[]> {
+async function loadLegacyWorkflows(workflowId: string): Promise<Workflow[]> {
   const { data: wfs, error: e1 } = await sbAdmin
     .from("bot_workflows")
     .select("*")
+    .eq("id", workflowId)
     .eq("is_active", true);
 
   if (e1 || !wfs || !wfs.length) return [];
@@ -113,7 +114,7 @@ type StudioNode = {
 
 type StudioEdge = { id: string; source: string; target: string };
 
-async function loadStudioWorkflows(): Promise<{
+async function loadStudioWorkflows(workflowId: string): Promise<{
   id: string;
   name: string;
   nodes: StudioNode[];
@@ -122,6 +123,7 @@ async function loadStudioWorkflows(): Promise<{
   const { data: wfs, error: eW } = await sbAdmin
     .from("workflows")
     .select("id,name,status")
+    .eq("id", workflowId)
     .order("created_at", { ascending: false });
 
   if (eW || !wfs || !wfs.length) return [];
@@ -162,7 +164,7 @@ function studioToRuntime(st: {
   name: string;
   nodes: StudioNode[];
   edges: StudioEdge[];
-}: Workflow) {
+}): Workflow {
   const rNodes: BotNode[] = st.nodes.map((n) => {
     const kind = n.data?.kind || "";
     const [k0, k1] = kind.split(":"); // "action:send-message" => ["action","send-message"]
@@ -505,9 +507,16 @@ async function runWorkflow(deps: EngineDeps, wf: Workflow, evt: EventPayload) {
 }
 
 /* ------------------------------- Entry API -------------------------------- */
-export async function processAutomation(evt: EventPayload, deps: EngineDeps) {
+export async function processAutomation(
+  workflowId: string,
+  evt: EventPayload,
+  deps: EngineDeps
+) {
+  const scopedWorkflowId = workflowId.trim();
+  if (!scopedWorkflowId) throw new Error("workflow_id_required");
+
   // 1) Studio (workflow_versions)
-  const studio = await loadStudioWorkflows();
+  const studio = await loadStudioWorkflows(scopedWorkflowId);
   if (studio.length) {
     const studioWfs = studio.map(studioToRuntime);
     for (const wf of studioWfs) await runWorkflow(deps, wf, evt);
@@ -515,7 +524,7 @@ export async function processAutomation(evt: EventPayload, deps: EngineDeps) {
   }
 
   // 2) Legacy (bot_workflows)
-  const legacy = await loadLegacyWorkflows();
+  const legacy = await loadLegacyWorkflows(scopedWorkflowId);
   if (!legacy.length) return;
   for (const wf of legacy) await runWorkflow(deps, wf, evt);
 }
